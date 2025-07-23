@@ -21,6 +21,18 @@ MainWindow::MainWindow(QWidget *parent)
     , scalingFactorSlider(nullptr)
     , setScalingFactorButton(nullptr)
     , scalingFactorLabel(nullptr)
+    , exposureTimeSpinBox(nullptr)
+    , exposureTimeSlider(nullptr)
+    , setExposureTimeButton(nullptr)
+    , exposureTimeLabel(nullptr)
+    , exposureAutoCheckBox(nullptr)
+    , frameRateSpinBox(nullptr)
+    , frameRateSlider(nullptr)
+    , setFrameRateButton(nullptr)
+    , frameRateLabel(nullptr)
+    , frameRateEnabledCheckBox(nullptr)
+    , realTimeFrameRateLabel(nullptr)
+    , frameCountLabel(nullptr)
 {
     setupUI();
     
@@ -28,10 +40,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(baslerCamera, &BaslerCamera::imageUpdated, this, &MainWindow::updateImage);
     connect(baslerCamera, &BaslerCamera::statusChanged, this, &MainWindow::updateStatus);
     connect(baslerCamera, &BaslerCamera::settingsChanged, this, &MainWindow::updateCameraSettings);
+    connect(baslerCamera, &BaslerCamera::frameRateUpdated, this, &MainWindow::onFrameRateUpdated);
     
     // Setup timer for periodic image updates
     connect(updateTimer, &QTimer::timeout, this, &MainWindow::updateImage);
-    updateTimer->start(33); // ~30 FPS
+    updateTimer->start(10); // ~30 FPS
     
     updateStatus("Application started");
 }
@@ -71,6 +84,25 @@ void MainWindow::setupUI()
     cameraSettingsLabel->setStyleSheet("QTextEdit { background-color: #f0f8ff; border: 1px solid #ccc; }");
     leftPanel->addWidget(new QLabel("Camera Settings:"));
     leftPanel->addWidget(cameraSettingsLabel);
+    
+    // Create real-time frame rate display section
+    QGroupBox *realTimeGroup = new QGroupBox("Real-time Frame Rate");
+    QVBoxLayout *realTimeLayout = new QVBoxLayout(realTimeGroup);
+    
+    // Real-time frame rate label
+    realTimeFrameRateLabel = new QLabel("Current FPS: 0.0");
+    realTimeFrameRateLabel->setAlignment(Qt::AlignCenter);
+    realTimeFrameRateLabel->setStyleSheet("QLabel { font-weight: bold; font-size: 14px; color: red; padding: 5px; background-color: #ffe6e6; border: 1px solid #ff9999; }");
+    
+    // Frame count label
+    frameCountLabel = new QLabel("Frame Count: 0");
+    frameCountLabel->setAlignment(Qt::AlignCenter);
+    frameCountLabel->setStyleSheet("QLabel { font-weight: bold; color: blue; padding: 3px; }");
+    
+    realTimeLayout->addWidget(realTimeFrameRateLabel);
+    realTimeLayout->addWidget(frameCountLabel);
+    
+    leftPanel->addWidget(realTimeGroup);
     
     // Create resolution control section
     QGroupBox *resolutionGroup = new QGroupBox("Resolution Control");
@@ -152,6 +184,96 @@ void MainWindow::setupUI()
     
     leftPanel->addWidget(scalingGroup);
     
+    // Create exposure control section
+    QGroupBox *exposureGroup = new QGroupBox("Exposure Control");
+    QVBoxLayout *exposureLayout = new QVBoxLayout(exposureGroup);
+    
+    // Exposure auto checkbox
+    exposureAutoCheckBox = new QCheckBox("Auto Exposure");
+    exposureAutoCheckBox->setEnabled(false);
+    exposureLayout->addWidget(exposureAutoCheckBox);
+    
+    // Exposure time spin box
+    exposureTimeSpinBox = new QDoubleSpinBox();
+    exposureTimeSpinBox->setRange(1000, 1000000);
+    exposureTimeSpinBox->setValue(10000);
+    exposureTimeSpinBox->setSingleStep(100);
+    exposureTimeSpinBox->setDecimals(0);
+    exposureTimeSpinBox->setSuffix(" μs");
+    exposureTimeSpinBox->setEnabled(false);
+    
+    // Exposure time slider
+    exposureTimeSlider = new QSlider(Qt::Horizontal);
+    exposureTimeSlider->setRange(1000, 1000000);
+    exposureTimeSlider->setValue(10000);
+    exposureTimeSlider->setEnabled(false);
+    
+    // Exposure time label
+    exposureTimeLabel = new QLabel("Current: 10000 μs");
+    exposureTimeLabel->setAlignment(Qt::AlignCenter);
+    exposureTimeLabel->setStyleSheet("QLabel { font-weight: bold; color: green; }");
+    
+    // Exposure controls layout
+    QHBoxLayout *exposureControlsLayout = new QHBoxLayout();
+    exposureControlsLayout->addWidget(new QLabel("Exposure Time:"));
+    exposureControlsLayout->addWidget(exposureTimeSpinBox);
+    
+    exposureLayout->addLayout(exposureControlsLayout);
+    exposureLayout->addWidget(exposureTimeSlider);
+    exposureLayout->addWidget(exposureTimeLabel);
+    
+    // Set exposure time button
+    setExposureTimeButton = new QPushButton("Set Exposure Time");
+    setExposureTimeButton->setEnabled(false);
+    exposureLayout->addWidget(setExposureTimeButton);
+    
+    leftPanel->addWidget(exposureGroup);
+    
+    // Create frame rate control section
+    QGroupBox *frameRateGroup = new QGroupBox("Frame Rate Control");
+    QVBoxLayout *frameRateLayout = new QVBoxLayout(frameRateGroup);
+    
+    // Frame rate enable checkbox
+    frameRateEnabledCheckBox = new QCheckBox("Enable Fixed Frame Rate");
+    frameRateEnabledCheckBox->setEnabled(false);
+    frameRateLayout->addWidget(frameRateEnabledCheckBox);
+    
+    // Frame rate spin box
+    frameRateSpinBox = new QDoubleSpinBox();
+    frameRateSpinBox->setRange(1.0, 100.0);
+    frameRateSpinBox->setValue(30.0);
+    frameRateSpinBox->setSingleStep(0.1);
+    frameRateSpinBox->setDecimals(1);
+    frameRateSpinBox->setSuffix(" fps");
+    frameRateSpinBox->setEnabled(false);
+    
+    // Frame rate slider
+    frameRateSlider = new QSlider(Qt::Horizontal);
+    frameRateSlider->setRange(10, 1000); // 1.0 to 100.0 * 10
+    frameRateSlider->setValue(300); // 30.0
+    frameRateSlider->setEnabled(false);
+    
+    // Frame rate label
+    frameRateLabel = new QLabel("Current: 30.0 fps");
+    frameRateLabel->setAlignment(Qt::AlignCenter);
+    frameRateLabel->setStyleSheet("QLabel { font-weight: bold; color: purple; }");
+    
+    // Frame rate controls layout
+    QHBoxLayout *frameRateControlsLayout = new QHBoxLayout();
+    frameRateControlsLayout->addWidget(new QLabel("Frame Rate:"));
+    frameRateControlsLayout->addWidget(frameRateSpinBox);
+    
+    frameRateLayout->addLayout(frameRateControlsLayout);
+    frameRateLayout->addWidget(frameRateSlider);
+    frameRateLayout->addWidget(frameRateLabel);
+    
+    // Set frame rate button
+    setFrameRateButton = new QPushButton("Set Frame Rate");
+    setFrameRateButton->setEnabled(false);
+    frameRateLayout->addWidget(setFrameRateButton);
+    
+    leftPanel->addWidget(frameRateGroup);
+    
     // Create status label
     statusLabel = new QLabel("Status: Ready");
     statusLabel->setStyleSheet("QLabel { color: blue; font-weight: bold; padding: 5px; }");
@@ -171,6 +293,8 @@ void MainWindow::setupUI()
     grabButton->setStyleSheet("QPushButton { padding: 8px; font-weight: bold; }");
     setResolutionButton->setStyleSheet("QPushButton { padding: 8px; font-weight: bold; }");
     setScalingFactorButton->setStyleSheet("QPushButton { padding: 8px; font-weight: bold; }");
+    setExposureTimeButton->setStyleSheet("QPushButton { padding: 8px; font-weight: bold; }");
+    setFrameRateButton->setStyleSheet("QPushButton { padding: 8px; font-weight: bold; }");
     
     // Initially disable buttons
     disconnectButton->setEnabled(false);
@@ -201,9 +325,15 @@ void MainWindow::setupUI()
     connect(grabButton, &QPushButton::clicked, this, &MainWindow::onGrabClicked);
     connect(setResolutionButton, &QPushButton::clicked, this, &MainWindow::onSetResolutionClicked);
     connect(setScalingFactorButton, &QPushButton::clicked, this, &MainWindow::onSetScalingFactorClicked);
+    connect(setExposureTimeButton, &QPushButton::clicked, this, &MainWindow::onSetExposureTimeClicked);
+    connect(setFrameRateButton, &QPushButton::clicked, this, &MainWindow::onSetFrameRateClicked);
     connect(resolutionComboBox, QOverload<const QString &>::of(&QComboBox::currentTextChanged),
             this, &MainWindow::onResolutionComboChanged);
     connect(scalingFactorSlider, &QSlider::valueChanged, this, &MainWindow::onScalingFactorSliderChanged);
+    connect(exposureTimeSlider, &QSlider::valueChanged, this, &MainWindow::onExposureTimeSliderChanged);
+    connect(exposureAutoCheckBox, &QCheckBox::toggled, this, &MainWindow::onExposureAutoChanged);
+    connect(frameRateSlider, &QSlider::valueChanged, this, &MainWindow::onFrameRateSliderChanged);
+    connect(frameRateEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onFrameRateEnabledChanged);
     
     // Set window properties
     setWindowTitle("Basler Camera Grabber");
@@ -218,16 +348,26 @@ void MainWindow::onConnectClicked()
         grabButton->setEnabled(true);
         setResolutionButton->setEnabled(true);
         setScalingFactorButton->setEnabled(true);
+        setExposureTimeButton->setEnabled(true);
+        setFrameRateButton->setEnabled(true);
         widthSpinBox->setEnabled(true);
         heightSpinBox->setEnabled(true);
         resolutionComboBox->setEnabled(true);
         scalingFactorSpinBox->setEnabled(true);
         scalingFactorSlider->setEnabled(true);
+        exposureTimeSpinBox->setEnabled(true);
+        exposureTimeSlider->setEnabled(true);
+        exposureAutoCheckBox->setEnabled(true);
+        frameRateSpinBox->setEnabled(true);
+        frameRateSlider->setEnabled(true);
+        frameRateEnabledCheckBox->setEnabled(true);
         
         updateCameraInfo();
         updateCameraSettings();
         updateResolutionControls();
         updateScalingControls();
+        updateExposureControls();
+        updateFrameRateControls();
     } else {
         QMessageBox::warning(this, "Connection Error", "Failed to connect to camera!");
     }
@@ -241,11 +381,19 @@ void MainWindow::onDisconnectClicked()
     grabButton->setEnabled(false);
     setResolutionButton->setEnabled(false);
     setScalingFactorButton->setEnabled(false);
+    setExposureTimeButton->setEnabled(false);
+    setFrameRateButton->setEnabled(false);
     widthSpinBox->setEnabled(false);
     heightSpinBox->setEnabled(false);
     resolutionComboBox->setEnabled(false);
     scalingFactorSpinBox->setEnabled(false);
     scalingFactorSlider->setEnabled(false);
+    exposureTimeSpinBox->setEnabled(false);
+    exposureTimeSlider->setEnabled(false);
+    exposureAutoCheckBox->setEnabled(false);
+    frameRateSpinBox->setEnabled(false);
+    frameRateSlider->setEnabled(false);
+    frameRateEnabledCheckBox->setEnabled(false);
     grabButton->setText("Start Grabbing");
     
     // Clear image and camera info
@@ -255,6 +403,8 @@ void MainWindow::onDisconnectClicked()
     resolutionComboBox->clear();
     resolutionComboBox->addItem("Select resolution...");
     scalingFactorLabel->setText("Current: 1.00x");
+    exposureTimeLabel->setText("Current: 10000 μs");
+    frameRateLabel->setText("Current: 30.0 fps");
 }
 
 void MainWindow::onGrabClicked()
@@ -403,5 +553,155 @@ void MainWindow::updateScalingControls()
     scalingFactorSpinBox->setRange(minFactor, maxFactor);
     scalingFactorSpinBox->setSingleStep(increment);
     scalingFactorSlider->setRange(static_cast<int>(minFactor * 100), static_cast<int>(maxFactor * 100));
+}
+
+void MainWindow::onSetExposureTimeClicked()
+{
+    double exposureTime = exposureTimeSpinBox->value();
+    
+    if (baslerCamera->setExposureTime(exposureTime)) {
+        updateCameraSettings();
+        updateExposureControls();
+    } else {
+        QMessageBox::warning(this, "Exposure Time Error", "Failed to set exposure time!");
+    }
+}
+
+void MainWindow::onExposureTimeSliderChanged(int value)
+{
+    exposureTimeSpinBox->setValue(value);
+    exposureTimeLabel->setText(QString("Current: %1 μs").arg(value));
+}
+
+void MainWindow::onExposureAutoChanged(bool checked)
+{
+    if (baslerCamera->setExposureAuto(checked)) {
+        updateCameraSettings();
+        updateExposureControls();
+    } else {
+        QMessageBox::warning(this, "Exposure Auto Error", "Failed to set exposure auto!");
+        // Revert checkbox state
+        exposureAutoCheckBox->setChecked(!checked);
+    }
+}
+
+void MainWindow::updateExposureControls()
+{
+    if (!baslerCamera->isConnected()) {
+        return;
+    }
+    
+    // Update spin box with current value
+    exposureTimeSpinBox->setValue(baslerCamera->getExposureTime());
+    
+    // Update slider with current value
+    exposureTimeSlider->setValue(static_cast<int>(baslerCamera->getExposureTime()));
+    
+    // Update label
+    exposureTimeLabel->setText(QString("Current: %1 μs").arg(baslerCamera->getExposureTime(), 0, 'f', 0));
+    
+    // Update checkbox
+    exposureAutoCheckBox->setChecked(baslerCamera->isExposureAuto());
+    
+    // Update range if needed
+    double minExposure = baslerCamera->getMinExposureTime();
+    double maxExposure = baslerCamera->getMaxExposureTime();
+    double increment = baslerCamera->getExposureTimeIncrement();
+    
+    exposureTimeSpinBox->setRange(minExposure, maxExposure);
+    exposureTimeSpinBox->setSingleStep(increment);
+    exposureTimeSlider->setRange(static_cast<int>(minExposure), static_cast<int>(maxExposure));
+    
+    // Enable/disable manual controls based on auto exposure
+    bool manualEnabled = !baslerCamera->isExposureAuto();
+    exposureTimeSpinBox->setEnabled(manualEnabled);
+    exposureTimeSlider->setEnabled(manualEnabled);
+    setExposureTimeButton->setEnabled(manualEnabled);
+}
+
+void MainWindow::onSetFrameRateClicked()
+{
+    double frameRate = frameRateSpinBox->value();
+    
+    if (baslerCamera->setFrameRate(frameRate)) {
+        updateCameraSettings();
+        updateFrameRateControls();
+    } else {
+        QMessageBox::warning(this, "Frame Rate Error", "Failed to set frame rate!");
+    }
+}
+
+void MainWindow::onFrameRateSliderChanged(int value)
+{
+    double frameRate = value / 10.0;
+    frameRateSpinBox->setValue(frameRate);
+    frameRateLabel->setText(QString("Current: %1 fps").arg(frameRate, 0, 'f', 1));
+}
+
+void MainWindow::onFrameRateEnabledChanged(bool checked)
+{
+    if (baslerCamera->setFrameRateEnabled(checked)) {
+        updateCameraSettings();
+        updateFrameRateControls();
+    } else {
+        QMessageBox::warning(this, "Frame Rate Enable Error", "Failed to set frame rate enable!");
+        // Revert checkbox state
+        frameRateEnabledCheckBox->setChecked(!checked);
+    }
+}
+
+void MainWindow::updateFrameRateControls()
+{
+    if (!baslerCamera->isConnected()) {
+        return;
+    }
+    
+    // Update spin box with current value
+    frameRateSpinBox->setValue(baslerCamera->getFrameRate());
+    
+    // Update slider with current value
+    int sliderValue = static_cast<int>(baslerCamera->getFrameRate() * 10);
+    frameRateSlider->setValue(sliderValue);
+    
+    // Update label
+    frameRateLabel->setText(QString("Current: %1 fps").arg(baslerCamera->getFrameRate(), 0, 'f', 1));
+    
+    // Update checkbox
+    frameRateEnabledCheckBox->setChecked(baslerCamera->isFrameRateEnabled());
+    
+    // Update range if needed
+    double minFrameRate = baslerCamera->getMinFrameRate();
+    double maxFrameRate = baslerCamera->getMaxFrameRate();
+    double increment = baslerCamera->getFrameRateIncrement();
+    
+    frameRateSpinBox->setRange(minFrameRate, maxFrameRate);
+    frameRateSpinBox->setSingleStep(increment);
+    frameRateSlider->setRange(static_cast<int>(minFrameRate * 10), static_cast<int>(maxFrameRate * 10));
+    
+    // Enable/disable manual controls based on frame rate enable
+    bool manualEnabled = baslerCamera->isFrameRateEnabled();
+    frameRateSpinBox->setEnabled(manualEnabled);
+    frameRateSlider->setEnabled(manualEnabled);
+    setFrameRateButton->setEnabled(manualEnabled);
+}
+
+void MainWindow::onFrameRateUpdated(double frameRate)
+{
+    // Update real-time frame rate display
+    realTimeFrameRateLabel->setText(QString("Current FPS: %1").arg(frameRate, 0, 'f', 1));
+    frameCountLabel->setText(QString("Frame Count: %1").arg(baslerCamera->getFrameCount()));
+}
+
+void MainWindow::updateRealTimeFrameRateDisplay()
+{
+    if (!baslerCamera->isConnected()) {
+        realTimeFrameRateLabel->setText("Current FPS: 0.0");
+        frameCountLabel->setText("Frame Count: 0");
+        return;
+    }
+    
+    // Update frame rate and count display
+    realTimeFrameRateLabel->setText(QString("Current FPS: %1").arg(baslerCamera->getRealTimeFrameRate(), 0, 'f', 1));
+    frameCountLabel->setText(QString("Frame Count: %1").arg(baslerCamera->getFrameCount()));
 }
 

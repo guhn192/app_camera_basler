@@ -10,6 +10,12 @@ BaslerCamera::BaslerCamera(QObject *parent)
     , m_height(0)
     , m_fps(0.0)
     , m_scalingFactor(1.0)
+    , m_exposureTime(10000.0)
+    , m_exposureAuto(false)
+    , m_frameRateEnabled(false)
+    , m_frameRate(30.0)
+    , m_frameCount(0)
+    , m_realTimeFrameRate(0.0)
 {
     qDebug() << "[BaslerCamera] Constructor called";
     
@@ -135,39 +141,49 @@ void BaslerCamera::disconnect()
 
 void BaslerCamera::startGrabbing()
 {
-    if (!m_connected || !m_camera) {
-        qDebug() << "[BaslerCamera] Cannot start grabbing - camera not connected";
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot start grabbing";
         return;
     }
     
-    if (m_grabThread) {
-        qDebug() << "[BaslerCamera] Grabbing already started";
+    if (m_grabFlag) {
+        qDebug() << "[BaslerCamera] Already grabbing";
         return;
     }
     
-    qDebug() << "[BaslerCamera] Starting grabbing...";
-    updateStatus("Starting grabbing...");
-    
-    m_grabFlag = true;
-    m_grabThread = new std::thread(&BaslerCamera::grabLoop, this);
-    
-    qDebug() << "[BaslerCamera] Grabbing started successfully";
-    updateStatus("Grabbing started");
+    try {
+        m_grabFlag = true;
+        m_grabThread = new std::thread(&BaslerCamera::grabLoop, this);
+        
+        // Reset frame rate measurement
+        resetFrameRateMeasurement();
+        
+        qDebug() << "[BaslerCamera] Grabbing started";
+        updateStatus("Grabbing started");
+    }
+    catch (const std::exception& e) {
+        qDebug() << "[BaslerCamera] Error starting grabbing:" << e.what();
+        m_grabFlag = false;
+        updateStatus("Failed to start grabbing");
+    }
 }
 
 void BaslerCamera::stopGrabbing()
 {
-    qDebug() << "[BaslerCamera] Stopping grabbing...";
+    if (!m_grabFlag) {
+        qDebug() << "[BaslerCamera] Not grabbing";
+        return;
+    }
     
-    if (m_grabThread) {
-        m_grabFlag = false;
-        if (m_grabThread->joinable()) {
-            m_grabThread->join();
-        }
+    m_grabFlag = false;
+    
+    if (m_grabThread && m_grabThread->joinable()) {
+        m_grabThread->join();
         delete m_grabThread;
         m_grabThread = nullptr;
     }
     
+    qDebug() << "[BaslerCamera] Grabbing stopped";
     updateStatus("Grabbing stopped");
 }
 
@@ -175,90 +191,39 @@ void BaslerCamera::grabLoop()
 {
     qDebug() << "[BaslerCamera] Grab loop started";
     
-    try {
-        if (m_camera == nullptr) {
-            qDebug() << "[BaslerCamera] Camera is null in grab loop";
-            return;
-        }
-        
-        // Start grabbing
-        m_camera->StartGrabbing(GrabStrategy_LatestImageOnly);
-        
-        while (m_grabFlag) {
-            try {
-                if (m_camera->RetrieveResult(5000, m_grabResult, TimeoutHandling_ThrowException)) {
-                    if (m_grabResult->GrabSucceeded()) {
-                        // Get image buffer and properties
-                        const uint8_t* pImageBuffer = (uint8_t*)m_grabResult->GetBuffer();
-                        int width = m_grabResult->GetWidth();
-                        int height = m_grabResult->GetHeight();
-                        
-                        if (width > 0 && height > 0 && pImageBuffer != nullptr) {
-                            cv::Mat img;
-                            
-                            // Handle different pixel formats
-                            EPixelType pixelType = m_grabResult->GetPixelType();
-                            
-                            switch (pixelType) {
-                                case PixelType_Mono8:
-                                    img = cv::Mat(height, width, CV_8UC1, (void*)pImageBuffer);
-                                    cv::cvtColor(img, img, cv::COLOR_GRAY2BGR);
-                                    break;
-                                    
-                                case PixelType_RGB8packed:
-                                    img = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
-                                    cv::cvtColor(img, img, cv::COLOR_RGB2BGR);
-                                    break;
-                                    
-                                case PixelType_BGR8packed:
-                                    img = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
-                                    break;
-                                    
-                                case PixelType_Mono12:
-                                case PixelType_Mono16:
-                                    // Convert to 8-bit for display
-                                    img = cv::Mat(height, width, CV_16UC1, (void*)pImageBuffer);
-                                    img.convertTo(img, CV_8UC1, 255.0 / 65535.0);
-                                    cv::cvtColor(img, img, cv::COLOR_GRAY2BGR);
-                                    break;
-                                    
-                                default:
-                                    qDebug() << "[BaslerCamera] Unsupported pixel format:" << pixelType;
-                                    // Try to handle as RGB8
-                                    img = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
-                                    cv::cvtColor(img, img, cv::COLOR_RGB2BGR);
-                                    break;
-                            }
-                            
-                            if (!img.empty()) {
-                                // Update image with mutex protection
-                                {
-                                    std::lock_guard<std::mutex> lock(m_imageMutex);
-                                    m_currentImage = img.clone();
-                                }
-                                
-                                // Emit signal for UI update
-                                emit imageUpdated();
-                            }
-                        }
+    while (m_grabFlag) {
+        try {
+            if (m_camera->GrabOne(5000, m_grabResult)) {
+                if (m_grabResult->GrabSucceeded()) {
+                    // Convert image to OpenCV format
+                    cv::Mat image;
+                    convertBaslerImageToOpenCV(m_grabResult, image);
+                    
+                    // Update current image
+                    {
+                        std::lock_guard<std::mutex> lock(m_imageMutex);
+                        m_currentImage = image.clone();
                     }
+                    
+                    // Update real-time frame rate
+                    updateRealTimeFrameRate();
+                    
+                    // Emit image updated signal
+                    emit imageUpdated();
+                } else {
+                    qDebug() << "[BaslerCamera] Grab failed:" << m_grabResult->GetErrorDescription();
                 }
+            } else {
+                qDebug() << "[BaslerCamera] Grab timeout";
             }
-            catch (const GenericException& e) {
-                qDebug() << "[BaslerCamera] Error in grab loop:" << e.GetDescription();
-                // Continue loop even if there's an error
-            }
-            
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        
-        // Stop grabbing
-        m_camera->StopGrabbing();
-        qDebug() << "[BaslerCamera] Grab loop stopped";
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Error in grab loop:" << e.GetDescription();
+            break;
+        }
     }
-    catch (const GenericException& e) {
-        qDebug() << "[BaslerCamera] Error in grab loop:" << e.GetDescription();
-    }
+    
+    qDebug() << "[BaslerCamera] Grab loop ended";
 }
 
 cv::Mat BaslerCamera::getImage()
@@ -325,7 +290,51 @@ void BaslerCamera::updateCameraSettings()
             m_scalingFactor = 1.0;
         }
         
-        updateStatus(QString("Settings: %1x%2 @ %3 FPS, Scale: %4").arg(m_width).arg(m_height).arg(m_fps, 0, 'f', 1).arg(m_scalingFactor, 0, 'f', 2));
+        // Get exposure time
+        try {
+            CFloatParameter exposureParam(m_camera->GetNodeMap(), "ExposureTime");
+            m_exposureTime = exposureParam.GetValue();
+            qDebug() << "[BaslerCamera] Exposure Time:" << m_exposureTime << "μs";
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Exposure Time:" << e.GetDescription();
+            m_exposureTime = 10000.0;
+        }
+        
+        // Get exposure auto
+        try {
+            CEnumParameter exposureAutoParam(m_camera->GetNodeMap(), "ExposureAuto");
+            m_exposureAuto = (exposureAutoParam.GetValue() == "Continuous");
+            qDebug() << "[BaslerCamera] Exposure Auto:" << (m_exposureAuto ? "On" : "Off");
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Exposure Auto:" << e.GetDescription();
+            m_exposureAuto = false;
+        }
+        
+        // Get frame rate enable
+        try {
+            CBooleanParameter frameRateEnableParam(m_camera->GetNodeMap(), "AcquisitionFrameRateEnable");
+            m_frameRateEnabled = frameRateEnableParam.GetValue();
+            qDebug() << "[BaslerCamera] Frame Rate Enable:" << (m_frameRateEnabled ? "On" : "Off");
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Frame Rate Enable:" << e.GetDescription();
+            m_frameRateEnabled = false;
+        }
+        
+        // Get frame rate
+        try {
+            CFloatParameter frameRateParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+            m_frameRate = frameRateParam.GetValue();
+            qDebug() << "[BaslerCamera] Frame Rate:" << m_frameRate << "fps";
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Frame Rate:" << e.GetDescription();
+            m_frameRate = 30.0;
+        }
+        
+        updateStatus(QString("Settings: %1x%2 @ %3 FPS, Scale: %4, Exp: %5 μs, FR: %6").arg(m_width).arg(m_height).arg(m_fps, 0, 'f', 1).arg(m_scalingFactor, 0, 'f', 2).arg(m_exposureTime, 0, 'f', 0).arg(m_frameRateEnabled ? "Fixed" : "Auto"));
     }
     catch (const GenericException& e) {
         qDebug() << "[BaslerCamera] Error getting camera settings:" << e.GetDescription();
@@ -333,6 +342,10 @@ void BaslerCamera::updateCameraSettings()
         m_height = 0;
         m_fps = 0.0;
         m_scalingFactor = 1.0;
+        m_exposureTime = 10000.0;
+        m_exposureAuto = false;
+        m_frameRateEnabled = false;
+        m_frameRate = 30.0;
     }
 }
 
@@ -357,11 +370,15 @@ QString BaslerCamera::getCurrentSettings() const
         return "Camera not connected";
     }
     
-    QString settings = QString("Resolution: %1 x %2\nFPS: %3\nScaling Factor: %4")
+    QString settings = QString("Resolution: %1 x %2\nFPS: %3\nScaling Factor: %4\nExposure: %5 μs (%6)\nFrame Rate: %7 (%8)")
                        .arg(m_width)
                        .arg(m_height)
                        .arg(m_fps, 0, 'f', 1)
-                       .arg(m_scalingFactor, 0, 'f', 2);
+                       .arg(m_scalingFactor, 0, 'f', 2)
+                       .arg(m_exposureTime, 0, 'f', 0)
+                       .arg(m_exposureAuto ? "Auto" : "Manual")
+                       .arg(m_frameRate, 0, 'f', 1)
+                       .arg(m_frameRateEnabled ? "Fixed" : "Auto");
     
     return settings;
 } 
@@ -558,5 +575,386 @@ double BaslerCamera::getScalingFactorIncrement() const
     catch (const GenericException& e) {
         qDebug() << "[BaslerCamera] Error getting scaling factor increment:" << e.GetDescription();
         return 0.1;
+    }
+} 
+
+double BaslerCamera::getExposureTime() const
+{
+    return m_exposureTime;
+}
+
+bool BaslerCamera::setExposureTime(double exposureTime)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set exposure time";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing if active
+        bool wasGrabbing = false;
+        if (m_grabFlag) {
+            stopGrabbing();
+            wasGrabbing = true;
+        }
+        
+        // Set exposure time
+        CFloatParameter exposureParam(m_camera->GetNodeMap(), "ExposureTime");
+        exposureParam.SetValue(exposureTime);
+        
+        // Update stored value
+        m_exposureTime = exposureTime;
+        
+        qDebug() << "[BaslerCamera] Exposure time set to:" << m_exposureTime << "μs";
+        
+        // Restart grabbing if it was active
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        // Emit settings changed signal
+        emit settingsChanged();
+        
+        updateStatus(QString("Exposure time changed to: %1 μs").arg(exposureTime, 0, 'f', 0));
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting exposure time:" << e.GetDescription();
+        updateStatus("Failed to set exposure time");
+        return false;
+    }
+}
+
+double BaslerCamera::getMinExposureTime() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 1000.0;
+    }
+    
+    try {
+        CFloatParameter exposureParam(m_camera->GetNodeMap(), "ExposureTime");
+        return exposureParam.GetMin();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting min exposure time:" << e.GetDescription();
+        return 1000.0;
+    }
+}
+
+double BaslerCamera::getMaxExposureTime() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 1000000.0;
+    }
+    
+    try {
+        CFloatParameter exposureParam(m_camera->GetNodeMap(), "ExposureTime");
+        return exposureParam.GetMax();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting max exposure time:" << e.GetDescription();
+        return 1000000.0;
+    }
+}
+
+double BaslerCamera::getExposureTimeIncrement() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 100.0;
+    }
+    
+    try {
+        CFloatParameter exposureParam(m_camera->GetNodeMap(), "ExposureTime");
+        return exposureParam.GetInc();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting exposure time increment:" << e.GetDescription();
+        return 100.0;
+    }
+}
+
+bool BaslerCamera::isExposureAuto() const
+{
+    return m_exposureAuto;
+}
+
+bool BaslerCamera::setExposureAuto(bool enable)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set exposure auto";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing if active
+        bool wasGrabbing = false;
+        if (m_grabFlag) {
+            stopGrabbing();
+            wasGrabbing = true;
+        }
+        
+        // Set exposure auto
+        CEnumParameter exposureAutoParam(m_camera->GetNodeMap(), "ExposureAuto");
+        exposureAutoParam.SetValue(enable ? "Continuous" : "Off");
+        
+        // Update stored value
+        m_exposureAuto = enable;
+        
+        qDebug() << "[BaslerCamera] Exposure auto set to:" << (enable ? "On" : "Off");
+        
+        // Restart grabbing if it was active
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        // Emit settings changed signal
+        emit settingsChanged();
+        
+        updateStatus(QString("Exposure auto changed to: %1").arg(enable ? "On" : "Off"));
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting exposure auto:" << e.GetDescription();
+        updateStatus("Failed to set exposure auto");
+        return false;
+    }
+} 
+
+bool BaslerCamera::isFrameRateEnabled() const
+{
+    return m_frameRateEnabled;
+}
+
+bool BaslerCamera::setFrameRateEnabled(bool enable)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set frame rate enable";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing if active
+        bool wasGrabbing = false;
+        if (m_grabFlag) {
+            stopGrabbing();
+            wasGrabbing = true;
+        }
+        
+        // Set frame rate enable
+        CBooleanParameter frameRateEnableParam(m_camera->GetNodeMap(), "AcquisitionFrameRateEnable");
+        frameRateEnableParam.SetValue(enable);
+        
+        // Update stored value
+        m_frameRateEnabled = enable;
+        
+        qDebug() << "[BaslerCamera] Frame rate enable set to:" << (enable ? "On" : "Off");
+        
+        // Restart grabbing if it was active
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        // Emit settings changed signal
+        emit settingsChanged();
+        
+        updateStatus(QString("Frame rate enable changed to: %1").arg(enable ? "On" : "Off"));
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting frame rate enable:" << e.GetDescription();
+        updateStatus("Failed to set frame rate enable");
+        return false;
+    }
+}
+
+double BaslerCamera::getFrameRate() const
+{
+    return m_frameRate;
+}
+
+bool BaslerCamera::setFrameRate(double frameRate)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set frame rate";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing if active
+        bool wasGrabbing = false;
+        if (m_grabFlag) {
+            stopGrabbing();
+            wasGrabbing = true;
+        }
+        
+        // Set frame rate
+        CFloatParameter frameRateParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+        frameRateParam.SetValue(frameRate);
+        
+        // Update stored value
+        m_frameRate = frameRate;
+        
+        qDebug() << "[BaslerCamera] Frame rate set to:" << m_frameRate << "fps";
+        
+        // Restart grabbing if it was active
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        // Emit settings changed signal
+        emit settingsChanged();
+        
+        updateStatus(QString("Frame rate changed to: %1 fps").arg(frameRate, 0, 'f', 1));
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting frame rate:" << e.GetDescription();
+        updateStatus("Failed to set frame rate");
+        return false;
+    }
+}
+
+double BaslerCamera::getMinFrameRate() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 1.0;
+    }
+    
+    try {
+        CFloatParameter frameRateParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+        return frameRateParam.GetMin();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting min frame rate:" << e.GetDescription();
+        return 1.0;
+    }
+}
+
+double BaslerCamera::getMaxFrameRate() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 100.0;
+    }
+    
+    try {
+        CFloatParameter frameRateParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+        return frameRateParam.GetMax();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting max frame rate:" << e.GetDescription();
+        return 100.0;
+    }
+}
+
+double BaslerCamera::getFrameRateIncrement() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 0.1;
+    }
+    
+    try {
+        CFloatParameter frameRateParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+        return frameRateParam.GetInc();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting frame rate increment:" << e.GetDescription();
+        return 0.1;
+    }
+} 
+
+void BaslerCamera::updateRealTimeFrameRate()
+{
+    std::lock_guard<std::mutex> lock(m_frameRateMutex);
+    
+    m_frameCount++;
+    
+    // Start timer on first frame
+    if (m_frameCount == 1) {
+        m_frameRateTimer.start();
+    }
+    
+    // Calculate frame rate every FRAME_RATE_WINDOW_SIZE frames
+    if (m_frameCount % FRAME_RATE_WINDOW_SIZE == 0) {
+        qint64 elapsed = m_frameRateTimer.elapsed();
+        if (elapsed > 0) {
+            m_realTimeFrameRate = (FRAME_RATE_WINDOW_SIZE * 1000.0) / elapsed;
+            
+            // Emit frame rate updated signal
+            emit frameRateUpdated(m_realTimeFrameRate);
+            
+            qDebug() << "[BaslerCamera] Real-time frame rate:" << m_realTimeFrameRate << "fps";
+        }
+    }
+}
+
+double BaslerCamera::getRealTimeFrameRate() const
+{
+    std::lock_guard<std::mutex> lock(m_frameRateMutex);
+    return m_realTimeFrameRate;
+}
+
+int BaslerCamera::getFrameCount() const
+{
+    std::lock_guard<std::mutex> lock(m_frameRateMutex);
+    return m_frameCount;
+}
+
+void BaslerCamera::resetFrameRateMeasurement()
+{
+    std::lock_guard<std::mutex> lock(m_frameRateMutex);
+    m_frameCount = 0;
+    m_realTimeFrameRate = 0.0;
+    m_frameRateTimer.invalidate();
+}
+
+void BaslerCamera::convertBaslerImageToOpenCV(const CGrabResultPtr& grabResult, cv::Mat& image)
+{
+    if (!grabResult->GrabSucceeded()) {
+        image = cv::Mat();
+        return;
+    }
+    
+    // Get image buffer and properties
+    const uint8_t* pImageBuffer = (uint8_t*)grabResult->GetBuffer();
+    int width = grabResult->GetWidth();
+    int height = grabResult->GetHeight();
+    
+    if (width <= 0 || height <= 0 || pImageBuffer == nullptr) {
+        image = cv::Mat();
+        return;
+    }
+    
+    // Handle different pixel formats
+    EPixelType pixelType = grabResult->GetPixelType();
+    
+    switch (pixelType) {
+        case PixelType_Mono8:
+            image = cv::Mat(height, width, CV_8UC1, (void*)pImageBuffer);
+            cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
+            break;
+            
+        case PixelType_RGB8packed:
+            image = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
+            cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+            break;
+            
+        case PixelType_BGR8packed:
+            image = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
+            break;
+            
+        case PixelType_Mono12:
+        case PixelType_Mono16:
+            // Convert to 8-bit for display
+            image = cv::Mat(height, width, CV_16UC1, (void*)pImageBuffer);
+            image.convertTo(image, CV_8UC1, 255.0 / 65535.0);
+            cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
+            break;
+            
+        default:
+            qDebug() << "[BaslerCamera] Unsupported pixel format:" << pixelType;
+            // Try to handle as RGB8
+            image = cv::Mat(height, width, CV_8UC3, (void*)pImageBuffer);
+            cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+            break;
     }
 } 

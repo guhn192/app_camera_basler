@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -48,11 +49,35 @@ public:
     double getMinScalingFactor() const;
     double getMaxScalingFactor() const;
     double getScalingFactorIncrement() const;
+    
+    // Exposure control
+    double getExposureTime() const;
+    bool setExposureTime(double exposureTime);
+    double getMinExposureTime() const;
+    double getMaxExposureTime() const;
+    double getExposureTimeIncrement() const;
+    bool isExposureAuto() const;
+    bool setExposureAuto(bool enable);
+    
+    // Frame rate control
+    bool isFrameRateEnabled() const;
+    bool setFrameRateEnabled(bool enable);
+    double getFrameRate() const;
+    bool setFrameRate(double frameRate);
+    double getMinFrameRate() const;
+    double getMaxFrameRate() const;
+    double getFrameRateIncrement() const;
+    
+    // Real-time frame rate measurement
+    double getRealTimeFrameRate() const;
+    int getFrameCount() const;
+    void resetFrameRateMeasurement();
 
 signals:
     void imageUpdated();
     void statusChanged(const QString &status);
     void settingsChanged();
+    void frameRateUpdated(double frameRate);
 
 private:
     CInstantCamera* m_camera;
@@ -75,10 +100,23 @@ private:
     int m_height;
     double m_fps;
     double m_scalingFactor;
+    double m_exposureTime;
+    bool m_exposureAuto;
+    bool m_frameRateEnabled;
+    double m_frameRate;
+    
+    // Real-time frame rate measurement
+    mutable std::mutex m_frameRateMutex;
+    QElapsedTimer m_frameRateTimer;
+    int m_frameCount;
+    double m_realTimeFrameRate;
+    static const int FRAME_RATE_WINDOW_SIZE = 30; // Number of frames to average
     
     void grabLoop();
     void updateStatus(const QString &status);
     void updateCameraSettings();
+    void updateRealTimeFrameRate();
+    void convertBaslerImageToOpenCV(const CGrabResultPtr& grabResult, cv::Mat& image);
 };
 
 #endif // BASLER_CAMERA_H 

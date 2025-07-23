@@ -13,6 +13,7 @@
 #include <QGroupBox>
 #include <QDoubleSpinBox>
 #include <QSlider>
+#include <QCheckBox>
 #include "basler_camera.h"
 
 class MainWindow : public QMainWindow
@@ -31,6 +32,13 @@ private slots:
     void onResolutionComboChanged(const QString &text);
     void onSetScalingFactorClicked();
     void onScalingFactorSliderChanged(int value);
+    void onSetExposureTimeClicked();
+    void onExposureTimeSliderChanged(int value);
+    void onExposureAutoChanged(bool checked);
+    void onSetFrameRateClicked();
+    void onFrameRateSliderChanged(int value);
+    void onFrameRateEnabledChanged(bool checked);
+    void onFrameRateUpdated(double frameRate);
     void updateImage();
 
 private:
@@ -58,12 +66,33 @@ private:
     QPushButton *setScalingFactorButton;
     QLabel *scalingFactorLabel;
     
+    // Exposure control
+    QDoubleSpinBox *exposureTimeSpinBox;
+    QSlider *exposureTimeSlider;
+    QPushButton *setExposureTimeButton;
+    QLabel *exposureTimeLabel;
+    QCheckBox *exposureAutoCheckBox;
+    
+    // Frame rate control
+    QDoubleSpinBox *frameRateSpinBox;
+    QSlider *frameRateSlider;
+    QPushButton *setFrameRateButton;
+    QLabel *frameRateLabel;
+    QCheckBox *frameRateEnabledCheckBox;
+    
+    // Real-time frame rate display
+    QLabel *realTimeFrameRateLabel;
+    QLabel *frameCountLabel;
+    
     void setupUI();
     void updateStatus(const QString &status);
     void updateCameraInfo();
     void updateCameraSettings();
     void updateResolutionControls();
     void updateScalingControls();
+    void updateExposureControls();
+    void updateFrameRateControls();
+    void updateRealTimeFrameRateDisplay();
 };
 
 #endif // MAINWINDOW_H
