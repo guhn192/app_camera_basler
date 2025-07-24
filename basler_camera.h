@@ -68,6 +68,34 @@ public:
     double getMaxFrameRate() const;
     double getFrameRateIncrement() const;
     
+    // Trigger control
+    bool isTriggerEnabled() const;
+    bool setTriggerEnabled(bool enable);
+    QString getTriggerMode() const;
+    bool setTriggerMode(const QString &mode);
+    QStringList getAvailableTriggerModes() const;
+    QString getTriggerSource() const;
+    bool setTriggerSource(const QString &source);
+    QStringList getAvailableTriggerSources() const;
+    double getTriggerDelay() const;
+    bool setTriggerDelay(double delay);
+    double getMinTriggerDelay() const;
+    double getMaxTriggerDelay() const;
+    double getTriggerDelayIncrement() const;
+    
+    // Software trigger execution
+    bool executeSoftwareTrigger();
+    
+    // Image recording control
+    bool isRecordingEnabled() const;
+    void setRecordingEnabled(bool enable);
+    void setRecordingPath(const QString &path);
+    QString getRecordingPath() const;
+    int getRecordedImageCount() const;
+    void resetRecordingCount();
+    void setMaxRecordedImages(int maxCount);
+    int getMaxRecordedImages() const;
+    
     // Real-time frame rate measurement
     double getRealTimeFrameRate() const;
     int getFrameCount() const;
@@ -110,6 +138,18 @@ private:
     bool m_exposureAuto;
     bool m_frameRateEnabled;
     double m_frameRate;
+    
+    // Trigger settings
+    bool m_triggerEnabled;
+    QString m_triggerMode;
+    QString m_triggerSource;
+    double m_triggerDelay;
+    
+    // Image recording settings
+    bool m_recordingEnabled;
+    QString m_recordingPath;
+    int m_recordedImageCount;
+    int m_maxRecordedImages;
     
     // Real-time frame rate measurement
     mutable std::mutex m_frameRateMutex;

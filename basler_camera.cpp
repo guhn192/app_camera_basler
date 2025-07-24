@@ -1,4 +1,6 @@
 #include "basler_camera.h"
+#include <QDir>
+#include <QDateTime>
 
 BaslerCamera::BaslerCamera(QObject *parent)
     : QObject(parent)
@@ -14,6 +16,14 @@ BaslerCamera::BaslerCamera(QObject *parent)
     , m_exposureAuto(false)
     , m_frameRateEnabled(false)
     , m_frameRate(30.0)
+    , m_triggerEnabled(false)
+    , m_triggerMode("Off")
+    , m_triggerSource("Software")
+    , m_triggerDelay(0.0)
+    , m_recordingEnabled(false)
+    , m_recordingPath("./recorded_images")
+    , m_recordedImageCount(0)
+    , m_maxRecordedImages(100)
     , m_frameCount(0)
     , m_realTimeFrameRate(0.0)
     , m_lastFrameTime(0.0)
@@ -235,6 +245,34 @@ void BaslerCamera::grabLoop()
                         m_currentImage = image.clone();
                     }
                     
+                    // Save image if recording is enabled
+                    if (m_recordingEnabled && !image.empty()) {
+                        // Create directory if it doesn't exist
+                        QDir dir(m_recordingPath);
+                        if (!dir.exists()) {
+                            dir.mkpath(".");
+                        }
+                        
+                        // Generate filename with pattern_XX.bmp format
+                        QString filename = QString("%1/pattern_%2.bmp")
+                                         .arg(m_recordingPath)
+                                         .arg(m_recordedImageCount, 2, 10, QChar('0')); // 2 digits, zero-padded
+                        
+                        // Save image
+                        if (cv::imwrite(filename.toStdString(), image)) {
+                            m_recordedImageCount++;
+                            qDebug() << "[BaslerCamera] Image saved:" << filename << "Total saved:" << m_recordedImageCount;
+                            
+                            // Check if max count reached and reset if needed
+                            if (m_recordedImageCount >= m_maxRecordedImages) {
+                                qDebug() << "[BaslerCamera] Max count reached (" << m_maxRecordedImages << "), resetting count to 0";
+                                m_recordedImageCount = 0;
+                            }
+                        } else {
+                            qDebug() << "[BaslerCamera] Failed to save image:" << filename;
+                        }
+                    }
+                    
                     // Emit image updated signal
                     emit imageUpdated();
                     
@@ -379,7 +417,42 @@ void BaslerCamera::updateCameraSettings()
             m_frameRate = 30.0;
         }
         
-        updateStatus(QString("Settings: %1x%2 @ %3 FPS, Scale: %4, Exp: %5 μs, FR: %6").arg(m_width).arg(m_height).arg(m_fps, 0, 'f', 1).arg(m_scalingFactor, 0, 'f', 2).arg(m_exposureTime, 0, 'f', 0).arg(m_frameRateEnabled ? "Fixed" : "Auto"));
+        // Get trigger mode
+        try {
+            CEnumParameter triggerModeParam(m_camera->GetNodeMap(), "TriggerMode");
+            m_triggerMode = QString::fromUtf8(triggerModeParam.GetValue().c_str());
+            m_triggerEnabled = (m_triggerMode != "Off");
+            qDebug() << "[BaslerCamera] Trigger Mode:" << m_triggerMode;
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Trigger Mode:" << e.GetDescription();
+            m_triggerMode = "Off";
+            m_triggerEnabled = false;
+        }
+        
+        // Get trigger source
+        try {
+            CEnumParameter triggerSourceParam(m_camera->GetNodeMap(), "TriggerSource");
+            m_triggerSource = QString::fromUtf8(triggerSourceParam.GetValue().c_str());
+            qDebug() << "[BaslerCamera] Trigger Source:" << m_triggerSource;
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Trigger Source:" << e.GetDescription();
+            m_triggerSource = "Software";
+        }
+        
+        // Get trigger delay
+        try {
+            CFloatParameter triggerDelayParam(m_camera->GetNodeMap(), "TriggerDelay");
+            m_triggerDelay = triggerDelayParam.GetValue();
+            qDebug() << "[BaslerCamera] Trigger Delay:" << m_triggerDelay << "μs";
+        }
+        catch (const GenericException& e) {
+            qDebug() << "[BaslerCamera] Could not get Trigger Delay:" << e.GetDescription();
+            m_triggerDelay = 0.0;
+        }
+        
+        updateStatus(QString("Settings: %1x%2 @ %3 FPS, Scale: %4, Exp: %5 μs, FR: %6, Trig: %7").arg(m_width).arg(m_height).arg(m_fps, 0, 'f', 1).arg(m_scalingFactor, 0, 'f', 2).arg(m_exposureTime, 0, 'f', 0).arg(m_frameRateEnabled ? "Fixed" : "Auto").arg(m_triggerEnabled ? m_triggerMode : "Off"));
     }
     catch (const GenericException& e) {
         qDebug() << "[BaslerCamera] Error getting camera settings:" << e.GetDescription();
@@ -1053,4 +1126,297 @@ void BaslerCamera::convertBaslerImageToOpenCV(const CGrabResultPtr& grabResult, 
             cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
             break;
     }
+} 
+
+// Trigger control methods
+bool BaslerCamera::isTriggerEnabled() const
+{
+    return m_triggerEnabled;
+}
+
+bool BaslerCamera::setTriggerEnabled(bool enable)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set trigger enabled";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing before changing trigger settings
+        bool wasGrabbing = m_grabFlag.load();
+        if (wasGrabbing) {
+            stopGrabbing();
+        }
+        
+        CEnumParameter triggerModeParam(m_camera->GetNodeMap(), "TriggerMode");
+        triggerModeParam.SetValue(enable ? "On" : "Off");
+        
+        m_triggerEnabled = enable;
+        m_triggerMode = enable ? "On" : "Off";
+        
+        qDebug() << "[BaslerCamera] Trigger enabled set to:" << enable;
+        
+        // Restart grabbing if it was running
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        emit settingsChanged();
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting trigger enabled:" << e.GetDescription();
+        return false;
+    }
+}
+
+QString BaslerCamera::getTriggerMode() const
+{
+    return m_triggerMode;
+}
+
+bool BaslerCamera::setTriggerMode(const QString &mode)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set trigger mode";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing before changing trigger settings
+        bool wasGrabbing = m_grabFlag.load();
+        if (wasGrabbing) {
+            stopGrabbing();
+        }
+        
+        CEnumParameter triggerModeParam(m_camera->GetNodeMap(), "TriggerMode");
+        triggerModeParam.SetValue(mode.toUtf8().constData());
+        
+        m_triggerMode = mode;
+        m_triggerEnabled = (mode != "Off");
+        
+        qDebug() << "[BaslerCamera] Trigger mode set to:" << mode;
+        
+        // Restart grabbing if it was running
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        emit settingsChanged();
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting trigger mode:" << e.GetDescription();
+        return false;
+    }
+}
+
+QStringList BaslerCamera::getAvailableTriggerModes() const
+{
+    QStringList modes;
+    modes << "Off" << "On";
+    return modes;
+}
+
+QString BaslerCamera::getTriggerSource() const
+{
+    return m_triggerSource;
+}
+
+bool BaslerCamera::setTriggerSource(const QString &source)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set trigger source";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing before changing trigger settings
+        bool wasGrabbing = m_grabFlag.load();
+        if (wasGrabbing) {
+            stopGrabbing();
+        }
+        
+        CEnumParameter triggerSourceParam(m_camera->GetNodeMap(), "TriggerSource");
+        triggerSourceParam.SetValue(source.toUtf8().constData());
+        
+        m_triggerSource = source;
+        
+        qDebug() << "[BaslerCamera] Trigger source set to:" << source;
+        
+        // Restart grabbing if it was running
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        emit settingsChanged();
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting trigger source:" << e.GetDescription();
+        return false;
+    }
+}
+
+QStringList BaslerCamera::getAvailableTriggerSources() const
+{
+    QStringList sources;
+    sources << "Software" << "Line1" << "Line2" << "Line3" << "Line4";
+    return sources;
+}
+
+double BaslerCamera::getTriggerDelay() const
+{
+    return m_triggerDelay;
+}
+
+bool BaslerCamera::setTriggerDelay(double delay)
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot set trigger delay";
+        return false;
+    }
+    
+    try {
+        // Stop grabbing before changing trigger settings
+        bool wasGrabbing = m_grabFlag.load();
+        if (wasGrabbing) {
+            stopGrabbing();
+        }
+        
+        CFloatParameter triggerDelayParam(m_camera->GetNodeMap(), "TriggerDelay");
+        triggerDelayParam.SetValue(delay);
+        
+        m_triggerDelay = delay;
+        
+        qDebug() << "[BaslerCamera] Trigger delay set to:" << delay << "μs";
+        
+        // Restart grabbing if it was running
+        if (wasGrabbing) {
+            startGrabbing();
+        }
+        
+        emit settingsChanged();
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error setting trigger delay:" << e.GetDescription();
+        return false;
+    }
+}
+
+double BaslerCamera::getMinTriggerDelay() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 0.0;
+    }
+    
+    try {
+        CFloatParameter triggerDelayParam(m_camera->GetNodeMap(), "TriggerDelay");
+        return triggerDelayParam.GetMin();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting min trigger delay:" << e.GetDescription();
+        return 0.0;
+    }
+}
+
+double BaslerCamera::getMaxTriggerDelay() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 1000000.0; // 1 second default
+    }
+    
+    try {
+        CFloatParameter triggerDelayParam(m_camera->GetNodeMap(), "TriggerDelay");
+        return triggerDelayParam.GetMax();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting max trigger delay:" << e.GetDescription();
+        return 1000000.0;
+    }
+}
+
+double BaslerCamera::getTriggerDelayIncrement() const
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        return 1.0;
+    }
+    
+    try {
+        CFloatParameter triggerDelayParam(m_camera->GetNodeMap(), "TriggerDelay");
+        return triggerDelayParam.GetInc();
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting trigger delay increment:" << e.GetDescription();
+        return 1.0;
+    }
+} 
+
+bool BaslerCamera::executeSoftwareTrigger()
+{
+    if (!m_camera || !m_camera->IsOpen()) {
+        qDebug() << "[BaslerCamera] Camera not open, cannot execute software trigger";
+        return false;
+    }
+    
+    try {
+        CCommandParameter triggerCommand(m_camera->GetNodeMap(), "TriggerSoftware");
+        triggerCommand.Execute();
+        qDebug() << "[BaslerCamera] Software trigger executed successfully";
+        return true;
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error executing software trigger:" << e.GetDescription();
+        return false;
+    }
+} 
+
+// Image recording control methods
+bool BaslerCamera::isRecordingEnabled() const
+{
+    return m_recordingEnabled;
+}
+
+void BaslerCamera::setRecordingEnabled(bool enable)
+{
+    m_recordingEnabled = enable;
+    qDebug() << "[BaslerCamera] Recording enabled:" << enable;
+}
+
+void BaslerCamera::setRecordingPath(const QString &path)
+{
+    m_recordingPath = path;
+    qDebug() << "[BaslerCamera] Recording path set to:" << path;
+}
+
+QString BaslerCamera::getRecordingPath() const
+{
+    return m_recordingPath;
+}
+
+int BaslerCamera::getRecordedImageCount() const
+{
+    return m_recordedImageCount;
+}
+
+void BaslerCamera::resetRecordingCount()
+{
+    m_recordedImageCount = 0;
+    qDebug() << "[BaslerCamera] Recording count reset to 0";
+}
+
+void BaslerCamera::setMaxRecordedImages(int maxCount)
+{
+    if (maxCount > 0) {
+        m_maxRecordedImages = maxCount;
+        qDebug() << "[BaslerCamera] Max recorded images set to:" << maxCount;
+    } else {
+        qDebug() << "[BaslerCamera] Invalid max count:" << maxCount << "must be > 0";
+    }
+}
+
+int BaslerCamera::getMaxRecordedImages() const
+{
+    return m_maxRecordedImages;
 } 

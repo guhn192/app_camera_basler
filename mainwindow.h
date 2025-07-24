@@ -15,6 +15,7 @@
 #include <QSlider>
 #include <QCheckBox>
 #include "basler_camera.h"
+#include <QLineEdit>
 
 class MainWindow : public QMainWindow
 {
@@ -41,6 +42,16 @@ private slots:
     void onFrameRateUpdated(double frameRate);
     void onFrameIdUpdated(int frameId);
     void onErrorsCountUpdated(int errorsCount);
+    void onTriggerEnabledChanged(bool checked);
+    void onTriggerModeChanged(const QString &text);
+    void onTriggerSourceChanged(const QString &text);
+    void onSetTriggerDelayClicked();
+    void onTriggerDelaySliderChanged(int value);
+    void onSoftwareTriggerClicked();
+    void onRecordingToggleClicked();
+    void onResetRecordingCountClicked();
+    void onSetRecordingPathClicked();
+    void onSetMaxRecordedImagesClicked();
     void updateImage();
 
 private:
@@ -82,6 +93,26 @@ private:
     QLabel *frameRateLabel;
     QCheckBox *frameRateEnabledCheckBox;
     
+    // Trigger control
+    QCheckBox *triggerEnabledCheckBox;
+    QComboBox *triggerModeComboBox;
+    QComboBox *triggerSourceComboBox;
+    QDoubleSpinBox *triggerDelaySpinBox;
+    QSlider *triggerDelaySlider;
+    QPushButton *setTriggerDelayButton;
+    QLabel *triggerDelayLabel;
+    QPushButton *softwareTriggerButton;
+    
+    // Image recording control
+    QPushButton *recordingToggleButton;
+    QLabel *recordingStatusLabel;
+    QLabel *recordedImageCountLabel;
+    QPushButton *resetRecordingCountButton;
+    QLineEdit *recordingPathEdit;
+    QPushButton *setRecordingPathButton;
+    QSpinBox *maxRecordedImagesSpinBox;
+    QPushButton *setMaxRecordedImagesButton;
+    
     // Real-time frame rate display
     QLabel *realTimeFrameRateLabel;
     QLabel *frameCountLabel;
@@ -96,6 +127,8 @@ private:
     void updateScalingControls();
     void updateExposureControls();
     void updateFrameRateControls();
+    void updateTriggerControls();
+    void updateRecordingControls();
     void updateRealTimeFrameRateDisplay();
 };
 

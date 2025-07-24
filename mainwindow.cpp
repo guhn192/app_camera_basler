@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include <QDebug>
 #include <QMessageBox>
+#include <QScrollArea>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -31,6 +32,22 @@ MainWindow::MainWindow(QWidget *parent)
     , setFrameRateButton(nullptr)
     , frameRateLabel(nullptr)
     , frameRateEnabledCheckBox(nullptr)
+    , triggerEnabledCheckBox(nullptr)
+    , triggerModeComboBox(nullptr)
+    , triggerSourceComboBox(nullptr)
+    , triggerDelaySpinBox(nullptr)
+    , triggerDelaySlider(nullptr)
+    , setTriggerDelayButton(nullptr)
+    , triggerDelayLabel(nullptr)
+    , softwareTriggerButton(nullptr)
+    , recordingToggleButton(nullptr)
+    , recordingStatusLabel(nullptr)
+    , recordedImageCountLabel(nullptr)
+    , resetRecordingCountButton(nullptr)
+    , recordingPathEdit(nullptr)
+    , setRecordingPathButton(nullptr)
+    , maxRecordedImagesSpinBox(nullptr)
+    , setMaxRecordedImagesButton(nullptr)
     , realTimeFrameRateLabel(nullptr)
     , frameCountLabel(nullptr)
     , frameIdLabel(nullptr)
@@ -65,15 +82,23 @@ void MainWindow::setupUI()
     
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
     
+    // Create scroll area for left panel
+    QScrollArea *scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setMaximumWidth(400); // Limit width of scroll area
+    
+    // Create widget for scroll area content
+    QWidget *scrollContent = new QWidget();
+    QVBoxLayout *leftPanel = new QVBoxLayout(scrollContent);
+    
     // Create top layout for camera info and controls
     QHBoxLayout *topLayout = new QHBoxLayout();
     
-    // Create left panel for camera info
-    QVBoxLayout *leftPanel = new QVBoxLayout();
-    
     // Create camera info display
     cameraInfoLabel = new QTextEdit();
-    cameraInfoLabel->setMaximumHeight(100);
+    cameraInfoLabel->setMaximumHeight(80);
     cameraInfoLabel->setReadOnly(true);
     cameraInfoLabel->setText("Camera not connected");
     cameraInfoLabel->setStyleSheet("QTextEdit { background-color: #f8f8f8; border: 1px solid #ccc; }");
@@ -82,7 +107,7 @@ void MainWindow::setupUI()
     
     // Create camera settings display
     cameraSettingsLabel = new QTextEdit();
-    cameraSettingsLabel->setMaximumHeight(80);
+    cameraSettingsLabel->setMaximumHeight(60);
     cameraSettingsLabel->setReadOnly(true);
     cameraSettingsLabel->setText("Settings: Not available");
     cameraSettingsLabel->setStyleSheet("QTextEdit { background-color: #f0f8ff; border: 1px solid #ccc; }");
@@ -296,6 +321,129 @@ void MainWindow::setupUI()
     
     leftPanel->addWidget(frameRateGroup);
     
+    // Create trigger control section
+    QGroupBox *triggerGroup = new QGroupBox("Trigger Control");
+    QVBoxLayout *triggerLayout = new QVBoxLayout(triggerGroup);
+    
+    // Trigger enable checkbox
+    triggerEnabledCheckBox = new QCheckBox("Enable Trigger");
+    triggerEnabledCheckBox->setEnabled(false);
+    triggerLayout->addWidget(triggerEnabledCheckBox);
+    
+    // Trigger mode combo box
+    QHBoxLayout *triggerModeLayout = new QHBoxLayout();
+    triggerModeLayout->addWidget(new QLabel("Trigger Mode:"));
+    triggerModeComboBox = new QComboBox();
+    triggerModeComboBox->addItems(QStringList() << "Off" << "On");
+    triggerModeComboBox->setEnabled(false);
+    triggerModeLayout->addWidget(triggerModeComboBox);
+    triggerLayout->addLayout(triggerModeLayout);
+    
+    // Trigger source combo box
+    QHBoxLayout *triggerSourceLayout = new QHBoxLayout();
+    triggerSourceLayout->addWidget(new QLabel("Trigger Source:"));
+    triggerSourceComboBox = new QComboBox();
+    triggerSourceComboBox->addItems(QStringList() << "Software" << "Line1" << "Line2" << "Line3" << "Line4");
+    triggerSourceComboBox->setEnabled(false);
+    triggerSourceLayout->addWidget(triggerSourceComboBox);
+    triggerLayout->addLayout(triggerSourceLayout);
+    
+    // Trigger delay spin box
+    triggerDelaySpinBox = new QDoubleSpinBox();
+    triggerDelaySpinBox->setRange(0.0, 1000000.0);
+    triggerDelaySpinBox->setValue(0.0);
+    triggerDelaySpinBox->setSingleStep(1.0);
+    triggerDelaySpinBox->setDecimals(0);
+    triggerDelaySpinBox->setSuffix(" μs");
+    triggerDelaySpinBox->setEnabled(false);
+    
+    // Trigger delay slider
+    triggerDelaySlider = new QSlider(Qt::Horizontal);
+    triggerDelaySlider->setRange(0, 1000000);
+    triggerDelaySlider->setValue(0);
+    triggerDelaySlider->setEnabled(false);
+    
+    // Trigger delay label
+    triggerDelayLabel = new QLabel("Current: 0 μs");
+    triggerDelayLabel->setAlignment(Qt::AlignCenter);
+    triggerDelayLabel->setStyleSheet("QLabel { font-weight: bold; color: orange; }");
+    
+    // Trigger delay controls layout
+    QHBoxLayout *triggerDelayControlsLayout = new QHBoxLayout();
+    triggerDelayControlsLayout->addWidget(new QLabel("Trigger Delay:"));
+    triggerDelayControlsLayout->addWidget(triggerDelaySpinBox);
+    
+    triggerLayout->addLayout(triggerDelayControlsLayout);
+    triggerLayout->addWidget(triggerDelaySlider);
+    triggerLayout->addWidget(triggerDelayLabel);
+    
+    // Set trigger delay button
+    setTriggerDelayButton = new QPushButton("Set Trigger Delay");
+    setTriggerDelayButton->setEnabled(false);
+    triggerLayout->addWidget(setTriggerDelayButton);
+    
+    // Software trigger button
+    softwareTriggerButton = new QPushButton("Software Trigger");
+    softwareTriggerButton->setEnabled(false);
+    softwareTriggerButton->setStyleSheet("QPushButton { background-color: #ff6b6b; color: white; font-weight: bold; }");
+    triggerLayout->addWidget(softwareTriggerButton);
+    
+    leftPanel->addWidget(triggerGroup);
+    
+    // Create image recording control section
+    QGroupBox *recordingGroup = new QGroupBox("Image Recording");
+    QVBoxLayout *recordingLayout = new QVBoxLayout(recordingGroup);
+    
+    // Recording toggle button
+    recordingToggleButton = new QPushButton("Start Recording");
+    recordingToggleButton->setEnabled(false);
+    recordingToggleButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }");
+    recordingLayout->addWidget(recordingToggleButton);
+    
+    // Recording status label
+    recordingStatusLabel = new QLabel("Status: Not Recording");
+    recordingStatusLabel->setAlignment(Qt::AlignCenter);
+    recordingStatusLabel->setStyleSheet("QLabel { font-weight: bold; color: gray; padding: 5px; background-color: #f0f0f0; border: 1px solid #ccc; }");
+    recordingLayout->addWidget(recordingStatusLabel);
+    
+    // Recorded image count label
+    recordedImageCountLabel = new QLabel("Saved Images: 0");
+    recordedImageCountLabel->setAlignment(Qt::AlignCenter);
+    recordedImageCountLabel->setStyleSheet("QLabel { font-weight: bold; color: blue; padding: 5px; background-color: #e6f3ff; border: 1px solid #99ccff; }");
+    recordingLayout->addWidget(recordedImageCountLabel);
+    
+    // Reset recording count button
+    resetRecordingCountButton = new QPushButton("Reset Count");
+    resetRecordingCountButton->setEnabled(false);
+    resetRecordingCountButton->setStyleSheet("QPushButton { background-color: #ff9800; color: white; }");
+    recordingLayout->addWidget(resetRecordingCountButton);
+    
+    // Recording path control
+    QHBoxLayout *recordingPathLayout = new QHBoxLayout();
+    recordingPathLayout->addWidget(new QLabel("Save Path:"));
+    recordingPathEdit = new QLineEdit("./recorded_images");
+    recordingPathEdit->setEnabled(false);
+    recordingPathLayout->addWidget(recordingPathEdit);
+    setRecordingPathButton = new QPushButton("Set Path");
+    setRecordingPathButton->setEnabled(false);
+    recordingPathLayout->addWidget(setRecordingPathButton);
+    recordingLayout->addLayout(recordingPathLayout);
+    
+    // Max recorded images control
+    QHBoxLayout *maxRecordedImagesLayout = new QHBoxLayout();
+    maxRecordedImagesLayout->addWidget(new QLabel("Max Images:"));
+    maxRecordedImagesSpinBox = new QSpinBox();
+    maxRecordedImagesSpinBox->setRange(1, 9999);
+    maxRecordedImagesSpinBox->setValue(100);
+    maxRecordedImagesSpinBox->setEnabled(false);
+    maxRecordedImagesLayout->addWidget(maxRecordedImagesSpinBox);
+    setMaxRecordedImagesButton = new QPushButton("Set Max");
+    setMaxRecordedImagesButton->setEnabled(false);
+    maxRecordedImagesLayout->addWidget(setMaxRecordedImagesButton);
+    recordingLayout->addLayout(maxRecordedImagesLayout);
+    
+    leftPanel->addWidget(recordingGroup);
+    
     // Create status label
     statusLabel = new QLabel("Status: Ready");
     statusLabel->setStyleSheet("QLabel { color: blue; font-weight: bold; padding: 5px; }");
@@ -328,8 +476,11 @@ void MainWindow::setupUI()
     
     leftPanel->addLayout(buttonLayout);
     
-    // Add left panel to top layout
-    topLayout->addLayout(leftPanel);
+    // Set scroll area widget
+    scrollArea->setWidget(scrollContent);
+    
+    // Add scroll area to top layout
+    topLayout->addWidget(scrollArea);
     
     // Create image display label
     imageLabel = new QLabel("No Image");
@@ -356,10 +507,23 @@ void MainWindow::setupUI()
     connect(exposureAutoCheckBox, &QCheckBox::toggled, this, &MainWindow::onExposureAutoChanged);
     connect(frameRateSlider, &QSlider::valueChanged, this, &MainWindow::onFrameRateSliderChanged);
     connect(frameRateEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onFrameRateEnabledChanged);
+    connect(setTriggerDelayButton, &QPushButton::clicked, this, &MainWindow::onSetTriggerDelayClicked);
+    connect(triggerDelaySlider, &QSlider::valueChanged, this, &MainWindow::onTriggerDelaySliderChanged);
+    connect(triggerEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onTriggerEnabledChanged);
+    connect(triggerModeComboBox, QOverload<const QString &>::of(&QComboBox::currentTextChanged),
+            this, &MainWindow::onTriggerModeChanged);
+    connect(triggerSourceComboBox, QOverload<const QString &>::of(&QComboBox::currentTextChanged),
+            this, &MainWindow::onTriggerSourceChanged);
+    connect(softwareTriggerButton, &QPushButton::clicked, this, &MainWindow::onSoftwareTriggerClicked);
+    connect(recordingToggleButton, &QPushButton::clicked, this, &MainWindow::onRecordingToggleClicked);
+    connect(resetRecordingCountButton, &QPushButton::clicked, this, &MainWindow::onResetRecordingCountClicked);
+    connect(setRecordingPathButton, &QPushButton::clicked, this, &MainWindow::onSetRecordingPathClicked);
+    connect(setMaxRecordedImagesButton, &QPushButton::clicked, this, &MainWindow::onSetMaxRecordedImagesClicked);
     
     // Set window properties
     setWindowTitle("Basler Camera Grabber");
-    resize(1000, 700);
+    resize(1200, 800);
+    setMinimumSize(1000, 600);
 }
 
 void MainWindow::onConnectClicked()
@@ -383,6 +547,19 @@ void MainWindow::onConnectClicked()
         frameRateSpinBox->setEnabled(true);
         frameRateSlider->setEnabled(true);
         frameRateEnabledCheckBox->setEnabled(true);
+        triggerEnabledCheckBox->setEnabled(true);
+        triggerModeComboBox->setEnabled(true);
+        triggerSourceComboBox->setEnabled(true);
+        triggerDelaySpinBox->setEnabled(true);
+        triggerDelaySlider->setEnabled(true);
+        setTriggerDelayButton->setEnabled(true);
+        softwareTriggerButton->setEnabled(true);
+        recordingToggleButton->setEnabled(true);
+        resetRecordingCountButton->setEnabled(true);
+        recordingPathEdit->setEnabled(true);
+        setRecordingPathButton->setEnabled(true);
+        maxRecordedImagesSpinBox->setEnabled(true);
+        setMaxRecordedImagesButton->setEnabled(true);
         
         updateCameraInfo();
         updateCameraSettings();
@@ -390,6 +567,8 @@ void MainWindow::onConnectClicked()
         updateScalingControls();
         updateExposureControls();
         updateFrameRateControls();
+        updateTriggerControls();
+        updateRecordingControls();
     } else {
         QMessageBox::warning(this, "Connection Error", "Failed to connect to camera!");
     }
@@ -416,6 +595,19 @@ void MainWindow::onDisconnectClicked()
     frameRateSpinBox->setEnabled(false);
     frameRateSlider->setEnabled(false);
     frameRateEnabledCheckBox->setEnabled(false);
+    triggerEnabledCheckBox->setEnabled(false);
+    triggerModeComboBox->setEnabled(false);
+    triggerSourceComboBox->setEnabled(false);
+    triggerDelaySpinBox->setEnabled(false);
+    triggerDelaySlider->setEnabled(false);
+    setTriggerDelayButton->setEnabled(false);
+    softwareTriggerButton->setEnabled(false);
+    recordingToggleButton->setEnabled(false);
+    resetRecordingCountButton->setEnabled(false);
+    recordingPathEdit->setEnabled(false);
+    setRecordingPathButton->setEnabled(false);
+    maxRecordedImagesSpinBox->setEnabled(false);
+    setMaxRecordedImagesButton->setEnabled(false);
     grabButton->setText("Start Grabbing");
     
     // Clear image and camera info
@@ -427,6 +619,10 @@ void MainWindow::onDisconnectClicked()
     scalingFactorLabel->setText("Current: 1.00x");
     exposureTimeLabel->setText("Current: 10000 μs");
     frameRateLabel->setText("Current: 30.0 fps");
+    recordingStatusLabel->setText("Status: Not Recording");
+    recordedImageCountLabel->setText("Saved Images: 0");
+    recordingPathEdit->setText("./recorded_images");
+    maxRecordedImagesSpinBox->setValue(100);
 }
 
 void MainWindow::onGrabClicked()
@@ -735,5 +931,191 @@ void MainWindow::updateRealTimeFrameRateDisplay()
     // Update frame rate and count display
     realTimeFrameRateLabel->setText(QString("Current FPS: %1").arg(baslerCamera->getRealTimeFrameRate(), 0, 'f', 1));
     frameCountLabel->setText(QString("Frame Count: %1").arg(baslerCamera->getFrameCount()));
+}
+
+// Trigger control slots
+void MainWindow::onTriggerEnabledChanged(bool checked)
+{
+    if (baslerCamera->setTriggerEnabled(checked)) {
+        updateCameraSettings();
+        updateTriggerControls();
+    } else {
+        QMessageBox::warning(this, "Trigger Enable Error", "Failed to set trigger enable!");
+        // Revert checkbox state
+        triggerEnabledCheckBox->setChecked(!checked);
+    }
+}
+
+void MainWindow::onTriggerModeChanged(const QString &text)
+{
+    if (baslerCamera->setTriggerMode(text)) {
+        updateCameraSettings();
+        updateTriggerControls();
+    } else {
+        QMessageBox::warning(this, "Trigger Mode Error", "Failed to set trigger mode!");
+        // Revert combo box selection
+        triggerModeComboBox->setCurrentText(baslerCamera->getTriggerMode());
+    }
+}
+
+void MainWindow::onTriggerSourceChanged(const QString &text)
+{
+    if (baslerCamera->setTriggerSource(text)) {
+        updateCameraSettings();
+        updateTriggerControls();
+    } else {
+        QMessageBox::warning(this, "Trigger Source Error", "Failed to set trigger source!");
+        // Revert combo box selection
+        triggerSourceComboBox->setCurrentText(baslerCamera->getTriggerSource());
+    }
+}
+
+void MainWindow::onSetTriggerDelayClicked()
+{
+    double delay = triggerDelaySpinBox->value();
+    
+    if (baslerCamera->setTriggerDelay(delay)) {
+        updateCameraSettings();
+        updateTriggerControls();
+    } else {
+        QMessageBox::warning(this, "Trigger Delay Error", "Failed to set trigger delay!");
+    }
+}
+
+void MainWindow::onTriggerDelaySliderChanged(int value)
+{
+    double delay = static_cast<double>(value);
+    triggerDelaySpinBox->setValue(delay);
+    triggerDelayLabel->setText(QString("Current: %1 μs").arg(delay, 0, 'f', 0));
+}
+
+void MainWindow::updateTriggerControls()
+{
+    if (!baslerCamera->isConnected()) {
+        return;
+    }
+    
+    // Update spin box with current value
+    triggerDelaySpinBox->setValue(baslerCamera->getTriggerDelay());
+    
+    // Update slider with current value
+    triggerDelaySlider->setValue(static_cast<int>(baslerCamera->getTriggerDelay()));
+    
+    // Update label
+    triggerDelayLabel->setText(QString("Current: %1 μs").arg(baslerCamera->getTriggerDelay(), 0, 'f', 0));
+    
+    // Update checkbox
+    triggerEnabledCheckBox->setChecked(baslerCamera->isTriggerEnabled());
+    
+    // Update combo boxes
+    triggerModeComboBox->setCurrentText(baslerCamera->getTriggerMode());
+    triggerSourceComboBox->setCurrentText(baslerCamera->getTriggerSource());
+    
+    // Update range if needed
+    double minDelay = baslerCamera->getMinTriggerDelay();
+    double maxDelay = baslerCamera->getMaxTriggerDelay();
+    double increment = baslerCamera->getTriggerDelayIncrement();
+    
+    triggerDelaySpinBox->setRange(minDelay, maxDelay);
+    triggerDelaySpinBox->setSingleStep(increment);
+    triggerDelaySlider->setRange(static_cast<int>(minDelay), static_cast<int>(maxDelay));
+    
+    // Enable/disable manual controls based on trigger enable
+    bool manualEnabled = baslerCamera->isTriggerEnabled();
+    triggerModeComboBox->setEnabled(manualEnabled);
+    triggerSourceComboBox->setEnabled(manualEnabled);
+    triggerDelaySpinBox->setEnabled(manualEnabled);
+    triggerDelaySlider->setEnabled(manualEnabled);
+    setTriggerDelayButton->setEnabled(manualEnabled);
+    
+    // Enable software trigger button only when trigger is enabled and source is Software
+    bool softwareTriggerEnabled = manualEnabled && (baslerCamera->getTriggerSource() == "Software");
+    softwareTriggerButton->setEnabled(softwareTriggerEnabled);
+}
+
+void MainWindow::onSoftwareTriggerClicked()
+{
+    if (!baslerCamera->isConnected() || !baslerCamera->isTriggerEnabled()) {
+        return;
+    }
+    
+    if (baslerCamera->executeSoftwareTrigger()) {
+        qDebug() << "[MainWindow] Software trigger executed successfully";
+    } else {
+        QMessageBox::warning(this, "Software Trigger Error", "Failed to execute software trigger!");
+    }
+}
+
+// Image recording control slots
+void MainWindow::onRecordingToggleClicked()
+{
+    bool isRecording = baslerCamera->isRecordingEnabled();
+    baslerCamera->setRecordingEnabled(!isRecording);
+    updateRecordingControls();
+}
+
+void MainWindow::onResetRecordingCountClicked()
+{
+    baslerCamera->resetRecordingCount();
+    updateRecordingControls();
+}
+
+void MainWindow::updateRecordingControls()
+{
+    if (!baslerCamera->isConnected()) {
+        return;
+    }
+    
+    bool isRecording = baslerCamera->isRecordingEnabled();
+    
+    // Update toggle button
+    if (isRecording) {
+        recordingToggleButton->setText("Stop Recording");
+        recordingToggleButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; }");
+        recordingStatusLabel->setText("Status: Recording");
+        recordingStatusLabel->setStyleSheet("QLabel { font-weight: bold; color: red; padding: 5px; background-color: #ffe6e6; border: 1px solid #ff9999; }");
+    } else {
+        recordingToggleButton->setText("Start Recording");
+        recordingToggleButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }");
+        recordingStatusLabel->setText("Status: Not Recording");
+        recordingStatusLabel->setStyleSheet("QLabel { font-weight: bold; color: gray; padding: 5px; background-color: #f0f0f0; border: 1px solid #ccc; }");
+    }
+    
+    // Update recorded image count
+    int recordedCount = baslerCamera->getRecordedImageCount();
+    recordedImageCountLabel->setText(QString("Saved Images: %1").arg(recordedCount));
+    
+    // Update recording path
+    recordingPathEdit->setText(baslerCamera->getRecordingPath());
+    
+    // Update max recorded images
+    maxRecordedImagesSpinBox->setValue(baslerCamera->getMaxRecordedImages());
+    
+    // Enable reset button only if there are recorded images
+    resetRecordingCountButton->setEnabled(recordedCount > 0);
+}
+
+void MainWindow::onSetRecordingPathClicked()
+{
+    QString newPath = recordingPathEdit->text().trimmed();
+    if (!newPath.isEmpty()) {
+        baslerCamera->setRecordingPath(newPath);
+        updateRecordingControls();
+        qDebug() << "[MainWindow] Recording path set to:" << newPath;
+    } else {
+        QMessageBox::warning(this, "Path Error", "Please enter a valid path!");
+    }
+}
+
+void MainWindow::onSetMaxRecordedImagesClicked()
+{
+    int maxCount = maxRecordedImagesSpinBox->value();
+    if (maxCount > 0) {
+        baslerCamera->setMaxRecordedImages(maxCount);
+        updateRecordingControls();
+        qDebug() << "[MainWindow] Max recorded images set to:" << maxCount;
+    } else {
+        QMessageBox::warning(this, "Max Count Error", "Please enter a valid number greater than 0!");
+    }
 }
 
