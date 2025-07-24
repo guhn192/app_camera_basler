@@ -33,6 +33,8 @@ MainWindow::MainWindow(QWidget *parent)
     , frameRateEnabledCheckBox(nullptr)
     , realTimeFrameRateLabel(nullptr)
     , frameCountLabel(nullptr)
+    , frameIdLabel(nullptr)
+    , errorsCountLabel(nullptr)
 {
     setupUI();
     
@@ -41,6 +43,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(baslerCamera, &BaslerCamera::statusChanged, this, &MainWindow::updateStatus);
     connect(baslerCamera, &BaslerCamera::settingsChanged, this, &MainWindow::updateCameraSettings);
     connect(baslerCamera, &BaslerCamera::frameRateUpdated, this, &MainWindow::onFrameRateUpdated);
+    connect(baslerCamera, &BaslerCamera::frameIdUpdated, this, &MainWindow::onFrameIdUpdated);
+    connect(baslerCamera, &BaslerCamera::errorsCountUpdated, this, &MainWindow::onErrorsCountUpdated);
     
     // Setup timer for periodic image updates
     connect(updateTimer, &QTimer::timeout, this, &MainWindow::updateImage);
@@ -94,13 +98,31 @@ void MainWindow::setupUI()
     realTimeFrameRateLabel->setAlignment(Qt::AlignCenter);
     realTimeFrameRateLabel->setStyleSheet("QLabel { font-weight: bold; font-size: 14px; color: red; padding: 5px; background-color: #ffe6e6; border: 1px solid #ff9999; }");
     
+    // Create horizontal layout for frame info
+    QHBoxLayout *frameInfoLayout = new QHBoxLayout();
+    
     // Frame count label
     frameCountLabel = new QLabel("Frame Count: 0");
     frameCountLabel->setAlignment(Qt::AlignCenter);
-    frameCountLabel->setStyleSheet("QLabel { font-weight: bold; color: blue; padding: 3px; }");
+    frameCountLabel->setStyleSheet("QLabel");
+    
+    // Frame ID label
+    frameIdLabel = new QLabel("Frame ID: 0");
+    frameIdLabel->setAlignment(Qt::AlignCenter);
+    frameIdLabel->setStyleSheet("QLabel");
+    
+    // Errors count label
+    errorsCountLabel = new QLabel("Errors: 0");
+    errorsCountLabel->setAlignment(Qt::AlignCenter);
+    errorsCountLabel->setStyleSheet("QLabel");
+    
+    // Add frame info labels to horizontal layout
+    frameInfoLayout->addWidget(frameCountLabel);
+    frameInfoLayout->addWidget(frameIdLabel);
+    frameInfoLayout->addWidget(errorsCountLabel);
     
     realTimeLayout->addWidget(realTimeFrameRateLabel);
-    realTimeLayout->addWidget(frameCountLabel);
+    realTimeLayout->addLayout(frameInfoLayout);
     
     leftPanel->addWidget(realTimeGroup);
     
@@ -690,6 +712,16 @@ void MainWindow::onFrameRateUpdated(double frameRate)
     // Update real-time frame rate display
     realTimeFrameRateLabel->setText(QString("Current FPS: %1").arg(frameRate, 0, 'f', 1));
     frameCountLabel->setText(QString("Frame Count: %1").arg(baslerCamera->getFrameCount()));
+}
+
+void MainWindow::onFrameIdUpdated(int frameId)
+{
+    frameIdLabel->setText(QString("Frame ID: %1").arg(frameId));
+}
+
+void MainWindow::onErrorsCountUpdated(int errorsCount)
+{
+    errorsCountLabel->setText(QString("Errors: %1").arg(errorsCount));
 }
 
 void MainWindow::updateRealTimeFrameRateDisplay()

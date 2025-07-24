@@ -39,6 +39,8 @@ private slots:
     void onFrameRateSliderChanged(int value);
     void onFrameRateEnabledChanged(bool checked);
     void onFrameRateUpdated(double frameRate);
+    void onFrameIdUpdated(int frameId);
+    void onErrorsCountUpdated(int errorsCount);
     void updateImage();
 
 private:
@@ -83,6 +85,8 @@ private:
     // Real-time frame rate display
     QLabel *realTimeFrameRateLabel;
     QLabel *frameCountLabel;
+    QLabel *frameIdLabel;
+    QLabel *errorsCountLabel;
     
     void setupUI();
     void updateStatus(const QString &status);

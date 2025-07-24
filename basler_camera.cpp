@@ -16,6 +16,9 @@ BaslerCamera::BaslerCamera(QObject *parent)
     , m_frameRate(30.0)
     , m_frameCount(0)
     , m_realTimeFrameRate(0.0)
+    , m_lastFrameTime(0.0)
+    , m_currentFrameId(0)
+    , m_errorsCount(0)
 {
     qDebug() << "[BaslerCamera] Constructor called";
     
@@ -191,36 +194,78 @@ void BaslerCamera::grabLoop()
 {
     qDebug() << "[BaslerCamera] Grab loop started";
     
+    // Start continuous grabbing
+    try {
+        m_camera->StartGrabbing(GrabStrategy_OneByOne, GrabLoop_ProvidedByUser);
+        qDebug() << "[BaslerCamera] Continuous grabbing started";
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error starting continuous grabbing:" << e.GetDescription();
+        return;
+    }
+    
     while (m_grabFlag) {
         try {
-            if (m_camera->GrabOne(5000, m_grabResult)) {
+            // Retrieve result with shorter timeout for continuous grabbing
+            if (m_camera->RetrieveResult(100, m_grabResult, TimeoutHandling_Return)) {
                 if (m_grabResult->GrabSucceeded()) {
+                    // Update current frame ID
+                    m_currentFrameId = m_grabResult->GetID();
+                    
+                    // Increment frame count immediately after successful grab
+                    {
+                        std::lock_guard<std::mutex> lock(m_frameRateMutex);
+                        m_frameCount++;
+                        
+                        // Start timer on first frame
+                        if (m_frameCount == 1) {
+                            m_frameRateTimer.start();
+                        }
+                    }
+                    
+                    qDebug() << "[BaslerCamera Grab] Frame ID:" << m_grabResult->GetID() << "Count:" << m_frameCount;
+
                     // Convert image to OpenCV format
                     cv::Mat image;
                     convertBaslerImageToOpenCV(m_grabResult, image);
-                    
+
                     // Update current image
                     {
                         std::lock_guard<std::mutex> lock(m_imageMutex);
                         m_currentImage = image.clone();
                     }
                     
-                    // Update real-time frame rate
-                    updateRealTimeFrameRate();
-                    
                     // Emit image updated signal
                     emit imageUpdated();
+                    
+                    // Emit frame ID updated signal
+                    emit frameIdUpdated(m_currentFrameId);
+                    
+                    // Update real-time frame rate after image is processed and emitted
+                    updateRealTimeFrameRate();
                 } else {
+                    // Increment error count
+                    m_errorsCount++;
+                    emit errorsCountUpdated(m_errorsCount);
+                    
                     qDebug() << "[BaslerCamera] Grab failed:" << m_grabResult->GetErrorDescription();
                 }
-            } else {
-                qDebug() << "[BaslerCamera] Grab timeout";
             }
+            // Note: No else clause here as RetrieveResult returns false on timeout, which is normal
         }
         catch (const GenericException& e) {
             qDebug() << "[BaslerCamera] Error in grab loop:" << e.GetDescription();
             break;
         }
+    }
+    
+    // Stop continuous grabbing
+    try {
+        m_camera->StopGrabbing();
+        qDebug() << "[BaslerCamera] Continuous grabbing stopped";
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error stopping continuous grabbing:" << e.GetDescription();
     }
     
     qDebug() << "[BaslerCamera] Grab loop ended";
@@ -866,24 +911,62 @@ void BaslerCamera::updateRealTimeFrameRate()
 {
     std::lock_guard<std::mutex> lock(m_frameRateMutex);
     
-    m_frameCount++;
+    // Get current time
+    qint64 currentTime = m_lastFrameTimer.nsecsElapsed();
+    double currentTimeMs = currentTime / 1000000.0; // Convert to milliseconds
     
     // Start timer on first frame
     if (m_frameCount == 1) {
-        m_frameRateTimer.start();
+        m_lastFrameTimer.start();
+        m_lastFrameTime = currentTimeMs;
+        return;
     }
     
-    // Calculate frame rate every FRAME_RATE_WINDOW_SIZE frames
-    if (m_frameCount % FRAME_RATE_WINDOW_SIZE == 0) {
-        qint64 elapsed = m_frameRateTimer.elapsed();
-        if (elapsed > 0) {
-            m_realTimeFrameRate = (FRAME_RATE_WINDOW_SIZE * 1000.0) / elapsed;
-            
-            // Emit frame rate updated signal
-            emit frameRateUpdated(m_realTimeFrameRate);
-            
-            qDebug() << "[BaslerCamera] Real-time frame rate:" << m_realTimeFrameRate << "fps";
+    // Calculate frame interval
+    double frameInterval = currentTimeMs - m_lastFrameTime;
+    m_lastFrameTime = currentTimeMs;
+    
+    // Add interval to our moving average buffer
+    m_frameIntervals.append(frameInterval);
+    
+    // Keep only the last MAX_INTERVALS intervals
+    if (m_frameIntervals.size() > MAX_INTERVALS) {
+        m_frameIntervals.removeFirst();
+    }
+    
+    // Calculate average frame interval
+    double avgInterval = 0.0;
+    if (!m_frameIntervals.isEmpty()) {
+        for (double interval : m_frameIntervals) {
+            avgInterval += interval;
         }
+        avgInterval /= m_frameIntervals.size();
+    }
+    
+    // Calculate frame rate from average interval
+    if (avgInterval > 0) {
+        m_realTimeFrameRate = 1000.0 / avgInterval; // Convert to fps
+    }
+    
+    // Get camera's configured frame rate for comparison
+    double configuredFrameRate = 0.0;
+    try {
+        if (m_camera && m_camera->IsOpen()) {
+            CFloatParameter fpsParam(m_camera->GetNodeMap(), "AcquisitionFrameRate");
+            configuredFrameRate = fpsParam.GetValue();
+        }
+    }
+    catch (const GenericException& e) {
+        qDebug() << "[BaslerCamera] Error getting configured frame rate:" << e.GetDescription();
+    }
+    
+    // Emit frame rate updated signal every few frames
+    if (m_frameCount % 3 == 0) { // Update every 3 frames for more responsive UI
+        emit frameRateUpdated(m_realTimeFrameRate);
+        
+        qDebug() << "[BaslerCamera] Real-time frame rate:" << m_realTimeFrameRate 
+                 << "fps (configured:" << configuredFrameRate 
+                 << "fps, avg interval:" << avgInterval << "ms, current interval:" << frameInterval << "ms)";
     }
 }
 
@@ -904,7 +987,20 @@ void BaslerCamera::resetFrameRateMeasurement()
     std::lock_guard<std::mutex> lock(m_frameRateMutex);
     m_frameCount = 0;
     m_realTimeFrameRate = 0.0;
+    m_lastFrameTime = 0.0;
+    m_frameIntervals.clear();
     m_frameRateTimer.invalidate();
+    m_lastFrameTimer.invalidate();
+}
+
+int BaslerCamera::getCurrentFrameId() const
+{
+    return m_currentFrameId;
+}
+
+int BaslerCamera::getErrorsCount() const
+{
+    return m_errorsCount;
 }
 
 void BaslerCamera::convertBaslerImageToOpenCV(const CGrabResultPtr& grabResult, cv::Mat& image)
@@ -918,7 +1014,7 @@ void BaslerCamera::convertBaslerImageToOpenCV(const CGrabResultPtr& grabResult, 
     const uint8_t* pImageBuffer = (uint8_t*)grabResult->GetBuffer();
     int width = grabResult->GetWidth();
     int height = grabResult->GetHeight();
-    
+
     if (width <= 0 || height <= 0 || pImageBuffer == nullptr) {
         image = cv::Mat();
         return;

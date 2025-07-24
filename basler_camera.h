@@ -72,12 +72,18 @@ public:
     double getRealTimeFrameRate() const;
     int getFrameCount() const;
     void resetFrameRateMeasurement();
+    
+    // Frame tracking
+    int getCurrentFrameId() const;
+    int getErrorsCount() const;
 
 signals:
     void imageUpdated();
     void statusChanged(const QString &status);
     void settingsChanged();
     void frameRateUpdated(double frameRate);
+    void frameIdUpdated(int frameId);
+    void errorsCountUpdated(int errorsCount);
 
 private:
     CInstantCamera* m_camera;
@@ -110,7 +116,15 @@ private:
     QElapsedTimer m_frameRateTimer;
     int m_frameCount;
     double m_realTimeFrameRate;
-    static const int FRAME_RATE_WINDOW_SIZE = 30; // Number of frames to average
+    static const int FRAME_RATE_WINDOW_SIZE = 5; // Reduced from 30 to 5 for more frequent updates
+    QElapsedTimer m_lastFrameTimer; // For more accurate frame rate calculation
+    double m_lastFrameTime; // Store last frame time for rolling average
+    QVector<double> m_frameIntervals; // Store recent frame intervals for moving average
+    static const int MAX_INTERVALS = 10; // Number of intervals to keep for moving average
+    
+    // Frame tracking
+    int m_currentFrameId;
+    int m_errorsCount;
     
     void grabLoop();
     void updateStatus(const QString &status);
