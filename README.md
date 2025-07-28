@@ -1,6 +1,25 @@
 # Basler Camera Qt Application
 
-Basler 카메라를 사용하여 실시간 이미지를 캡처하고 표시하는 Qt 애플리케이션입니다.
+Basler GigE 카메라를 사용하여 실시간 이미지를 캡처하고 표시하는 Qt 애플리케이션입니다.
+
+## 🚀 빠른 시작
+
+### 자동 설치 (권장)
+```bash
+# 설치 스크립트 실행
+./install_basler_camera.sh
+```
+
+### 수동 설치
+자세한 설치 가이드는 [BASLER_CAMERA_SETUP_GUIDE.md](BASLER_CAMERA_SETUP_GUIDE.md)를 참조하세요.
+
+## 📋 요구사항
+
+- Ubuntu 18.04 이상
+- Qt 5.12 이상
+- OpenCV 4.x
+- Basler Pylon SDK
+- GigE 네트워크 어댑터
 
 ## 기능
 

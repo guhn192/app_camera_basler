@@ -52,6 +52,7 @@ private slots:
     void onResetRecordingCountClicked();
     void onSetRecordingPathClicked();
     void onSetMaxRecordedImagesClicked();
+    void onSetIPClicked();
     void updateImage();
 
 private:
@@ -66,6 +67,10 @@ private:
     QPushButton *connectButton;
     QPushButton *disconnectButton;
     QPushButton *grabButton;
+    
+    // IP address control
+    QLineEdit *ipAddressEdit;
+    QPushButton *setIPButton;
     
     // Resolution control
     QSpinBox *widthSpinBox;

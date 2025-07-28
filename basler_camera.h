@@ -98,6 +98,10 @@ public:
     
     // Real-time frame rate measurement
     double getRealTimeFrameRate() const;
+    
+    // Camera IP address setting
+    void setCameraIP(const QString &ipAddress);
+    QString getCameraIP() const;
     int getFrameCount() const;
     void resetFrameRateMeasurement();
     
@@ -128,6 +132,7 @@ private:
     QString m_cameraName;
     QString m_cameraModel;
     QString m_cameraSerial;
+    QString m_cameraIP;
     
     // Camera settings
     int m_width;

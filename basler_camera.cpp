@@ -27,8 +27,9 @@ BaslerCamera::BaslerCamera(QObject *parent)
     , m_frameCount(0)
     , m_realTimeFrameRate(0.0)
     , m_lastFrameTime(0.0)
-    , m_currentFrameId(0)
+    ,     m_currentFrameId(0)
     , m_errorsCount(0)
+    , m_cameraIP("192.168.0.2")
 {
     qDebug() << "[BaslerCamera] Constructor called";
     
@@ -88,11 +89,58 @@ bool BaslerCamera::connect()
         DeviceInfoList_t allDevices;
         tlFactory.EnumerateDevices(allDevices);
 
-        // Filter only GigE devices
+        qDebug() << "[BaslerCamera] Total devices found:" << allDevices.size();
+
+        for (size_t i = 0; i < allDevices.size(); ++i) {
+            qDebug() << "[BaslerCamera] Found device:"
+                    << QString::fromUtf8(allDevices[i].GetFriendlyName().c_str())
+                    << "Device Class:" << allDevices[i].GetDeviceClass();
+        }
+
+        // Check all devices for IP address and find specific IP camera
         DeviceInfoList_t gigeDevices;
+        CDeviceInfo targetDevice;
+        bool foundTargetCamera = false;
+        
         for (const auto& deviceInfo : allDevices) {
+            qDebug() << "[BaslerCamera] Checking device:" << QString::fromUtf8(deviceInfo.GetFriendlyName().c_str());
+            
+            // Check if this is a GigE device
             if (deviceInfo.GetDeviceClass() == BaslerGigEDeviceClass) {
                 gigeDevices.push_back(deviceInfo);
+                qDebug() << "[BaslerCamera] This is a GigE device";
+                
+                // Check if this is our target camera (IP: 192.168.0.2)
+                try {
+                    QString deviceIP = QString::fromUtf8(deviceInfo.GetIpAddress().c_str());
+                    qDebug() << "[BaslerCamera] Found GigE device with IP:" << deviceIP;
+                    
+                    if (deviceIP == m_cameraIP) {
+                        targetDevice = deviceInfo;
+                        foundTargetCamera = true;
+                        qDebug() << "[BaslerCamera] Found target camera at IP" << m_cameraIP;
+                    }
+                }
+                catch (const GenericException& e) {
+                    qDebug() << "[BaslerCamera] Error getting device IP:" << e.GetDescription();
+                }
+            } else {
+                // Check if this device has an IP address (might be a different device class)
+                try {
+                    QString deviceIP = QString::fromUtf8(deviceInfo.GetIpAddress().c_str());
+                    if (!deviceIP.isEmpty()) {
+                        qDebug() << "[BaslerCamera] Found non-GigE device with IP:" << deviceIP;
+                        
+                        if (deviceIP == m_cameraIP) {
+                            targetDevice = deviceInfo;
+                            foundTargetCamera = true;
+                            qDebug() << "[BaslerCamera] Found target camera at IP" << m_cameraIP << "(non-GigE device)";
+                        }
+                    }
+                }
+                catch (const GenericException& e) {
+                    // IP address not available for this device type
+                }
             }
         }
 
@@ -104,9 +152,14 @@ bool BaslerCamera::connect()
 
         qDebug() << "[BaslerCamera] Found" << gigeDevices.size() << "GigE camera(s)";
 
+        if (!foundTargetCamera) {
+            qDebug() << "[BaslerCamera] Target camera (" << m_cameraIP << ") not found!";
+            updateStatus("Target camera not found");
+            return false;
+        }
         
-        // Create camera object
-        m_camera = new CInstantCamera(tlFactory.CreateFirstDevice());
+        // Create camera object with specific device
+        m_camera = new CInstantCamera(tlFactory.CreateDevice(targetDevice));
         
         if (m_camera == nullptr) {
             qDebug() << "[BaslerCamera] Failed to create camera object";
@@ -1445,4 +1498,16 @@ void BaslerCamera::setMaxRecordedImages(int maxCount)
 int BaslerCamera::getMaxRecordedImages() const
 {
     return m_maxRecordedImages;
+}
+
+// Camera IP address methods
+void BaslerCamera::setCameraIP(const QString &ipAddress)
+{
+    m_cameraIP = ipAddress;
+    qDebug() << "[BaslerCamera] Camera IP set to:" << ipAddress;
+}
+
+QString BaslerCamera::getCameraIP() const
+{
+    return m_cameraIP;
 } 

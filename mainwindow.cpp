@@ -449,6 +449,23 @@ void MainWindow::setupUI()
     statusLabel->setStyleSheet("QLabel { color: blue; font-weight: bold; padding: 5px; }");
     leftPanel->addWidget(statusLabel);
     
+    // Create camera IP address section
+    QGroupBox *ipGroup = new QGroupBox("Camera IP Address");
+    QHBoxLayout *ipLayout = new QHBoxLayout(ipGroup);
+    
+    ipAddressEdit = new QLineEdit("192.168.0.2");
+    ipAddressEdit->setPlaceholderText("Enter camera IP address");
+    ipAddressEdit->setStyleSheet("QLineEdit { padding: 5px; }");
+    
+    setIPButton = new QPushButton("Set IP");
+    setIPButton->setStyleSheet("QPushButton { padding: 5px; }");
+    
+    ipLayout->addWidget(new QLabel("IP:"));
+    ipLayout->addWidget(ipAddressEdit);
+    ipLayout->addWidget(setIPButton);
+    
+    leftPanel->addWidget(ipGroup);
+    
     // Create button layout
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     
@@ -495,6 +512,7 @@ void MainWindow::setupUI()
     // Connect button signals
     connect(connectButton, &QPushButton::clicked, this, &MainWindow::onConnectClicked);
     connect(disconnectButton, &QPushButton::clicked, this, &MainWindow::onDisconnectClicked);
+    connect(setIPButton, &QPushButton::clicked, this, &MainWindow::onSetIPClicked);
     connect(grabButton, &QPushButton::clicked, this, &MainWindow::onGrabClicked);
     connect(setResolutionButton, &QPushButton::clicked, this, &MainWindow::onSetResolutionClicked);
     connect(setScalingFactorButton, &QPushButton::clicked, this, &MainWindow::onSetScalingFactorClicked);
@@ -1116,6 +1134,18 @@ void MainWindow::onSetMaxRecordedImagesClicked()
         qDebug() << "[MainWindow] Max recorded images set to:" << maxCount;
     } else {
         QMessageBox::warning(this, "Max Count Error", "Please enter a valid number greater than 0!");
+    }
+}
+
+void MainWindow::onSetIPClicked()
+{
+    QString ipAddress = ipAddressEdit->text().trimmed();
+    if (!ipAddress.isEmpty()) {
+        baslerCamera->setCameraIP(ipAddress);
+        qDebug() << "[MainWindow] Camera IP set to:" << ipAddress;
+        updateStatus(QString("Camera IP set to: %1").arg(ipAddress));
+    } else {
+        QMessageBox::warning(this, "IP Address Error", "Please enter a valid IP address!");
     }
 }
 
