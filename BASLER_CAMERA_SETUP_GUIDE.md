@@ -16,16 +16,40 @@
 ## 시스템 요구사항
 
 ### 하드웨어 요구사항
-- **CPU**: Intel Core i5 이상 또는 동등한 성능
-- **메모리**: 최소 4GB RAM (8GB 이상 권장)
-- **네트워크**: GigE 네트워크 어댑터 (Intel PRO 1000, I210, I340, I350 시리즈 권장)
-- **디스크**: 최소 2GB 여유 공간 (SSD 권장)
+- **CPU**: Intel Core i3 이상 또는 동등한 성능
+- **네트워크**: GigE 네트워크 어댑터 
 
 ### 소프트웨어 요구사항
 - **OS**: Ubuntu 18.04 이상
 - **컴파일러**: GCC 7.0 이상
 - **Qt**: Qt 5.12 이상
 - **OpenCV**: 4.x 버전
+
+---
+
+## 현재 시스템 사양 (테스트 환경)
+
+### 하드웨어 사양
+- **CPU**: Intel Core i3-N305 (8코어, 1.8GHz)
+- **메모리**: 7.5GB RAM
+- **저장장치**: NVMe SSD (117GB, 45GB 여유)
+- **네트워크**: 
+  - enp1s0: Intel Device 125c (192.168.0.1/24)
+  - enp2s0: Intel Device 125c (192.168.3.2/24, MTU 9000), Speed: 1 Gbps
+  - wlxe0e1a9387e85: WiFi (10.108.1.6/24)
+
+### 소프트웨어 사양
+- **OS**: Ubuntu 22.04.4 LTS (Kernel 6.8.0-49-generic)
+- **컴파일러**: GCC 11.4.0
+- **Qt**: Qt 5.15.3
+- **OpenCV**: 4.5.4
+- **Pylon SDK**: 25.07.0
+
+### 네트워크 설정
+- **카메라 연결**: enp2s0 (192.168.3.2/24)
+- **카메라 IP**: 192.168.3.3 (PylonGigEConfigurator가 자동 설정)
+- **MTU**: 9000 (Jumbo frames 활성화)
+- **서브넷**: 192.168.3.0/24
 
 ---
 
@@ -144,6 +168,21 @@ Device 0:
   MAC Address: 00305335E135
 ```
 
+### 4. 카메라 IP 주소 변경 확인
+**중요**: PylonGigEConfigurator가 카메라 IP를 자동으로 변경할 수 있습니다.
+
+```bash
+# 현재 카메라 IP 확인
+LD_LIBRARY_PATH=/opt/pylon/lib ./test_pylon
+
+# 또는 PylonGigEConfigurator로 확인
+sudo /opt/pylon/bin/PylonGigEConfigurator list
+```
+
+**예상 IP 변경:**
+- **원래 IP**: 192.168.0.2
+- **변경된 IP**: 192.168.3.3 (PylonGigEConfigurator가 자동 설정)
+
 ---
 
 ## 앱 빌드 및 실행
@@ -174,8 +213,10 @@ make
 
 ### 1. 카메라 연결
 1. **IP 주소 설정**: "Camera IP Address" 섹션에서 카메라 IP 입력
-   - 기본값: `192.168.3.3` (PylonGigEConfigurator가 설정한 IP)
-2. **"Set IP"** 버튼 클릭
+   - **기본값**: `192.168.0.2` (앱 초기 설정)
+   - **실제 IP**: `192.168.3.3` (PylonGigEConfigurator가 설정한 IP)
+   - **중요**: PylonGigEConfigurator 실행 후 IP가 변경되었을 수 있으므로 실제 IP 확인 필요
+2. **"Set IP"** 버튼 클릭하여 올바른 IP 설정
 3. **"Connect"** 버튼 클릭하여 카메라 연결
 
 ### 2. 이미지 캡처
@@ -193,6 +234,14 @@ make
 - **녹화 활성화**: Recording Control 섹션에서 "Start Recording" 클릭
 - **녹화 경로**: 녹화할 이미지 저장 경로 설정
 - **최대 이미지 수**: 한 번에 저장할 최대 이미지 수 설정
+
+### 5. 이미지 파일 크기 최적화
+**중요**: 앱은 Mono8 형식으로 이미지를 저장하여 파일 크기를 최적화합니다.
+
+- **Mono8 이미지**: 1920 × 1200 = 약 2.3 MB
+- **BGR 이미지**: 1920 × 1200 × 3 = 약 6.9 MB (이전 버전)
+- **저장 위치**: `./recorded_images/` 디렉토리
+- **파일 형식**: BMP (무손실 압축)
 
 ---
 
@@ -265,16 +314,25 @@ sudo reboot
 ### 4. 일반적인 오류 메시지
 
 #### 4.1 "No camera found"
-- 네트워크 설정 확인
-- PylonGigEConfigurator 실행
-- 카메라 IP 주소 확인
+- **네트워크 설정 확인**: `ip addr show`
+- **PylonGigEConfigurator 실행**: `sudo /opt/pylon/bin/PylonGigEConfigurator auto-all`
+- **카메라 IP 주소 확인**: 
+  ```bash
+  LD_LIBRARY_PATH=/opt/pylon/lib ./test_pylon
+  ```
+- **IP 주소 변경 확인**: PylonGigEConfigurator가 카메라 IP를 192.168.0.2 → 192.168.3.3로 변경했을 수 있음
 
 #### 4.2 "Connection failed"
 - 네트워크 케이블 연결 확인
 - 방화벽 설정 확인
 - 카메라 전원 확인
 
-#### 4.3 "Permission denied"
+#### 4.3 "Total devices found: 0"
+- Pylon 라이브러리 경로 확인: `export LD_LIBRARY_PATH=/opt/pylon/lib:$LD_LIBRARY_PATH`
+- PylonGigEConfigurator 실행으로 네트워크 최적화
+- 카메라가 다른 네트워크에 연결되어 있는지 확인
+
+#### 4.4 "Permission denied"
 - 사용자 권한 확인
 - udev 규칙 설정
 - sudo 권한으로 실행
@@ -304,8 +362,9 @@ echo "* hard nofile 4096" | sudo tee -a /etc/security/limits.conf
 
 ### 3. 카메라 설정 최적화
 - **패킷 크기**: 8192로 설정
-- **프레임 레이트**: 필요에 따라 조정
+- **프레임 레이트**: 필요에 따라 조정 (최대 22 FPS)
 - **노출 시간**: 조명 조건에 맞게 조정
+- **이미지 형식**: Mono8 (파일 크기 최적화)
 
 ---
 
@@ -320,7 +379,9 @@ app_camera_basler/
 ├── basler_camera.h/cpp      # 카메라 제어 클래스
 ├── mainwindow.ui            # UI 디자인 파일
 ├── test_pylon.cpp           # 카메라 감지 테스트 프로그램
+├── check_system_specs.sh    # 시스템 사양 확인 스크립트
 ├── BASLER_CAMERA_SETUP_GUIDE.md  # 이 가이드 파일
+├── install_basler_camera.sh # 자동 설치 스크립트
 └── README.md               # 프로젝트 문서
 ```
 
@@ -372,8 +433,10 @@ htop
 - **프레임 레이트**: 최대 22 FPS
 - **센서**: CMOS
 - **인터페이스**: GigE Vision
-- **IP 주소**: 192.168.3.3 (설정에 따라 변경 가능)
+- **IP 주소**: 192.168.3.3 (PylonGigEConfigurator가 자동 설정)
 - **MAC 주소**: 00:30:53:35:E1:35
+- **시리얼 번호**: 40058160
+- **모델명**: a2A1920-51gmPRO
 
 ---
 
@@ -401,12 +464,16 @@ htop
 
 ### 유용한 명령어 모음
 ```bash
+# 시스템 사양 확인
+./check_system_specs.sh
+
 # 네트워크 상태 확인
 ip addr show
 ping 192.168.3.3
 
 # Pylon 도구
 sudo /opt/pylon/bin/PylonGigEConfigurator list
+sudo /opt/pylon/bin/PylonGigEConfigurator auto-all
 sudo /opt/pylon/bin/ipconfigurator
 
 # 앱 빌드 및 실행
@@ -415,10 +482,21 @@ qmake && make
 
 # 테스트
 LD_LIBRARY_PATH=/opt/pylon/lib ./test_pylon
+
+# 이미지 파일 크기 확인
+ls -lh recorded_images/
 ```
 
 ---
 
 **마지막 업데이트**: 2024년 7월 28일  
-**버전**: 1.0  
-**작성자**: AI Assistant 
+**버전**: 1.1  
+**작성자**: AI Assistant
+
+## 변경 사항 (v1.1)
+- 카메라 IP 주소 변경 문제 해결 방법 추가
+- 이미지 파일 크기 최적화 내용 추가
+- PylonGigEConfigurator 자동 IP 설정 설명 추가
+- 실제 테스트 결과 반영
+- 문제 해결 섹션 확장
+- 현재 시스템 사양 정보 추가 (Intel Core i3-N305, Ubuntu 22.04.4 LTS) 
