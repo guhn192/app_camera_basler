@@ -68,22 +68,42 @@ bool BaslerCamera::connect()
         // Get the transport layer factory
         CTlFactory& tlFactory = CTlFactory::GetInstance();
         
-        // Get all attached devices
-        DeviceInfoList_t devices;
+//        // Get all attached devices
+//        DeviceInfoList_t devices;
 
-        for (size_t i = 0; i < devices.size(); ++i) {
-            qDebug() << "[BaslerCamera] Found device:"
-                     << QString::fromUtf8(devices[i].GetFriendlyName().c_str());
+//        for (size_t i = 0; i < devices.size(); ++i) {
+//            qDebug() << "[BaslerCamera] Found device:"
+//                     << QString::fromUtf8(devices[i].GetFriendlyName().c_str());
+//        }
+
+//        if (tlFactory.EnumerateDevices(devices) == 0) {
+//            qDebug() << "[BaslerCamera] No camera found!";
+//            updateStatus("No camera found");
+//            return false;
+//        }
+        
+//        qDebug() << "[BaslerCamera] Found" << devices.size() << "camera(s)";
+//        updateStatus(QString("Found %1 camera(s)").arg(devices.size()));
+
+        DeviceInfoList_t allDevices;
+        tlFactory.EnumerateDevices(allDevices);
+
+        // Filter only GigE devices
+        DeviceInfoList_t gigeDevices;
+        for (const auto& deviceInfo : allDevices) {
+            if (deviceInfo.GetDeviceClass() == BaslerGigEDeviceClass) {
+                gigeDevices.push_back(deviceInfo);
+            }
         }
 
-        if (tlFactory.EnumerateDevices(devices) == 0) {
-            qDebug() << "[BaslerCamera] No camera found!";
+        if (gigeDevices.empty()) {
+            qDebug() << "[BaslerCamera] No GigE camera found!";
             updateStatus("No camera found");
             return false;
         }
-        
-        qDebug() << "[BaslerCamera] Found" << devices.size() << "camera(s)";
-        updateStatus(QString("Found %1 camera(s)").arg(devices.size()));
+
+        qDebug() << "[BaslerCamera] Found" << gigeDevices.size() << "GigE camera(s)";
+
         
         // Create camera object
         m_camera = new CInstantCamera(tlFactory.CreateFirstDevice());
