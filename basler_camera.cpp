@@ -337,8 +337,18 @@ void BaslerCamera::grabLoop()
                                          .arg(m_recordingPath)
                                          .arg(m_recordedImageCount, 2, 10, QChar('0')); // 2 digits, zero-padded
                         
-                        // Save image
-                        if (cv::imwrite(filename.toStdString(), image)) {
+                        // Save image in original format (Mono8) for recording
+                        cv::Mat originalImage;
+                        if (m_grabResult->GetPixelType() == PixelType_Mono8) {
+                            // Create Mono8 image for saving
+                            const uint8_t* pImageBuffer = (uint8_t*)m_grabResult->GetBuffer();
+                            originalImage = cv::Mat(m_height, m_width, CV_8UC1, (void*)pImageBuffer);
+                        } else {
+                            // For other formats, use the converted image
+                            originalImage = image;
+                        }
+                        
+                        if (cv::imwrite(filename.toStdString(), originalImage)) {
                             m_recordedImageCount++;
                             qDebug() << "[BaslerCamera] Image saved:" << filename << "Total saved:" << m_recordedImageCount;
                             
