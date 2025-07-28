@@ -70,6 +70,12 @@ bool BaslerCamera::connect()
         
         // Get all attached devices
         DeviceInfoList_t devices;
+
+        for (size_t i = 0; i < devices.size(); ++i) {
+            qDebug() << "[BaslerCamera] Found device:"
+                     << QString::fromUtf8(devices[i].GetFriendlyName().c_str());
+        }
+
         if (tlFactory.EnumerateDevices(devices) == 0) {
             qDebug() << "[BaslerCamera] No camera found!";
             updateStatus("No camera found");
